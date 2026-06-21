@@ -1,3 +1,5 @@
+https://campusjp.vercel.app/
+
 # Campus Justice Protocol (CJP)
 
 A decentralized AI-powered academic dispute resolution platform built on [GenLayer](https://genlayer.com). CJP provides students and educational institutions with a transparent, fair, and tamper-proof system for resolving academic disputes through AI-assisted deliberation and blockchain consensus.
