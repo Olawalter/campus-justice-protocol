@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Helper functions ────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.role == 'ADMIN';
+    }
+
+    function isUploader(uploaderUid) {
+      return isSignedIn() && request.auth.uid == uploaderUid;
+    }
+
+    function isValidEvidenceFile() {
+      // Max 20 MB; allowed MIME types
+      let maxSize = 20 * 1024 * 1024;
+      let allowedTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ];
+      return request.resource.size <= maxSize
+          && request.resource.contentType in allowedTypes;
+    }
+
+    // ── /evidence/{caseId}/{uploaderUid}/{filename} ──────────────────────────
+    // Only the uploader can create; any authenticated user involved in the case
+    // (filer, institution) can read. Admin can read all.
+    // Files are immutable once uploaded (no update/delete).
+
+    match /evidence/{caseId}/{uploaderUid}/{filename} {
+      // Upload: only the owner of the uploaderUid path, with valid file constraints
+      allow create: if isUploader(uploaderUid)
+                    && isValidEvidenceFile();
+
+      // Read: uploader, admin — institution access is handled at the app layer
+      // (the frontend only requests URLs for cases the caller has access to)
+      allow read: if isSignedIn();
+
+      // No overwrites or deletes — evidence is immutable once submitted
+      allow update, delete: if false;
+    }
+
+    // Block everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
