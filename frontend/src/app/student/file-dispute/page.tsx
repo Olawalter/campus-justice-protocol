@@ -193,6 +193,7 @@ function FileDisputeContent() {
     try {
       const caseId = await submitCase({
         institution: isCustom ? CUSTOM_ADDRESS : institution,
+        institutionName: selectedName,
         disputeType: disputeType as DisputeType,
         description,
         evidenceFiles: evidence.files,

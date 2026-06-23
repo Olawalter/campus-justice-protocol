@@ -88,7 +88,7 @@ export function useCaseFiling() {
           filerName: user.displayName,
           filerEmail: user.email,
           institutionAddress: input.institution,
-          institutionName: '',
+          institutionName: input.institutionName,
           disputeType: input.disputeType,
           description: input.description,
           status: 'SUBMITTED',

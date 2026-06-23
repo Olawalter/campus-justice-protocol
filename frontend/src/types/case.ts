@@ -83,6 +83,7 @@ export interface Case {
 
 export interface CaseFilingInput {
   institution: string
+  institutionName: string
   department: string
   matricNumber: string
   disputeType: DisputeType
