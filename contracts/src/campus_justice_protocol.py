@@ -345,7 +345,7 @@ class CampusJusticeProtocol(gl.Contract):
             }
             return json.dumps(normalized, sort_keys=True)
 
-        result_str = gl.eq_principle.strict_eq(nondet)
+        result_str = gl.eq_principle.prompt_comparative(nondet)
         judgment = json.loads(result_str)
         case["judgment"] = judgment
         case["status"] = "JUDGMENT_ISSUED"
@@ -437,7 +437,7 @@ class CampusJusticeProtocol(gl.Contract):
             }
             return json.dumps(normalized, sort_keys=True)
 
-        result_str = gl.eq_principle.strict_eq(nondet)
+        result_str = gl.eq_principle.prompt_comparative(nondet)
         appeal_judgment = json.loads(result_str)
         case["appeal_judgment"] = appeal_judgment
         case["status"] = "FINAL_JUDGMENT"
