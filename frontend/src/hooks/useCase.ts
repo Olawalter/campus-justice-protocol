@@ -15,6 +15,7 @@ import {
   getUserByWalletAddress,
   getCaseMeta,
   getCasesByFiler,
+  getCasesByInstitution,
 } from '@/services/firebase/firestore'
 import * as contract from '@/services/genlayer/contract'
 import { CaseFilingInput, Case } from '@/types'
@@ -89,6 +90,7 @@ export function useCaseFiling() {
           institutionAddress: input.institution,
           institutionName: '',
           disputeType: input.disputeType,
+          description: input.description,
           status: 'SUBMITTED',
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -210,7 +212,7 @@ export function useCaseDetail(caseId: string) {
       institution: String(m.institutionAddress || ''),
       institutionName: String(m.institutionName || ''),
       disputeType: (String(m.disputeType || 'OTHER')) as Case['disputeType'],
-      description: '',
+      description: String(m.description || ''),
       status: (String(m.status || 'SUBMITTED')) as Case['status'],
       createdAt: typeof m.createdAt === 'number' ? m.createdAt / 1000 : 0,
       updatedAt: typeof m.updatedAt === 'number' ? m.updatedAt / 1000 : 0,
@@ -224,62 +226,90 @@ export function useCaseDetail(caseId: string) {
     }
   }
 
+  // After showing fast data (cache/Firestore), enrich with GenLayer in background
+  function enrichFromChain(baseCase: Case) {
+    contract.getCase(caseId).then((chainData) => {
+      // Merge: keep chain data as primary, fall back to base for any missing fields
+      setChainCase({
+        ...baseCase,
+        ...chainData,
+        // Prefer non-empty description
+        description: chainData.description || baseCase.description,
+      })
+    }).catch(() => {
+      // GenLayer unavailable — base data is already shown, no change needed
+    })
+  }
+
   const fetchCase = useCallback(async () => {
     if (!caseId || !user?.uid) return
     setLoading(true)
     setError(null)
 
-    // 0) Check Zustand cache first (populated by the cases list page)
-    const cached = getCachedCase(caseId)
-    if (cached) {
-      setMeta(cached)
-      setChainCase(metaToCase(cached))
-      setLoading(false)
-      return
-    }
-
-    // 1) Try GenLayer (source of truth for CJP-format IDs)
+    // 1) Try GenLayer first — it has the full case (description, judgment, hashes, etc.)
     try {
       const c = await contract.getCase(caseId)
       setChainCase(c)
       setLoading(false)
       return
     } catch {
-      // Expected for old tx-hash case IDs — continue to Firestore
+      // GenLayer unavailable or case not on-chain yet — fall through to Firestore
     }
 
-    // 2) Try Firestore: query all user's cases and find the match
-    try {
-      const cases = await getCasesByFiler(user.uid)
-      if (cases.length > 0) setCaseCache(cases)
-      const match = cases.find((c) => c.caseId === caseId)
-      if (match) {
-        setMeta(match)
-        setChainCase(metaToCase(match))
-        setLoading(false)
-        return
-      }
-    } catch {
-      // Permission or network error — continue
+    // 2) Check Zustand cache (populated when the cases list was last loaded)
+    const cached = getCachedCase(caseId)
+    if (cached) {
+      setMeta(cached)
+      const base = metaToCase(cached)
+      setChainCase(base)
+      setLoading(false)
+      enrichFromChain(base)
+      return
     }
 
-    // 3) Try direct doc read as last resort
+    // 3) Firestore: direct doc read (works for everyone now that rules allow authenticated reads)
     try {
       const m = await getCaseMeta(caseId)
       if (m) {
         setMeta(m)
-        setChainCase(metaToCase(m))
+        const base = metaToCase(m)
+        setChainCase(base)
         setLoading(false)
+        enrichFromChain(base)
         return
       }
     } catch {
-      // Permission denied — continue
+      // Fall through
     }
 
-    setError('Case not found on-chain or in local cache.')
+    // 4) Firestore query — role-aware
+    try {
+      let found: CaseMeta | undefined
+      if (user.role === 'INSTITUTION' && user.walletAddress) {
+        const cases = await getCasesByInstitution(user.walletAddress)
+        if (cases.length > 0) setCaseCache(cases)
+        found = cases.find((c) => c.caseId === caseId)
+      } else {
+        const cases = await getCasesByFiler(user.uid)
+        if (cases.length > 0) setCaseCache(cases)
+        found = cases.find((c) => c.caseId === caseId)
+      }
+      if (found) {
+        setMeta(found)
+        const base = metaToCase(found)
+        setChainCase(base)
+        setLoading(false)
+        enrichFromChain(base)
+        return
+      }
+    } catch {
+      // Permission or network error
+    }
+
+    setError('Case not found. Please refresh or try again later.')
     setLoading(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caseId, user?.uid])
+  }, [caseId, user?.uid, user?.role, user?.walletAddress])
 
   useEffect(() => {
     fetchCase()
