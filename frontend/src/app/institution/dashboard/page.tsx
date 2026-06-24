@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { FolderOpen, Clock, CheckCircle2, Star, TrendingUp, BarChart3, Library, Globe } from 'lucide-react'
+import { FolderOpen, Clock, CheckCircle2, Star, TrendingUp, BarChart3, Library, Globe, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { MetricCard } from '@/components/dashboard/MetricCard'
@@ -9,6 +9,7 @@ import { StaggeredReveal, RevealItem } from '@/components/animations/StaggeredRe
 import { PageWrapper } from '@/components/layout/PageWrapper'
 import { AuthGuard } from '@/components/layout/AuthGuard'
 import { CaseCard } from '@/components/cases/CaseCard'
+import { CaseStatusBadge } from '@/components/cases/CaseStatusBadge'
 import { useAuth } from '@/hooks/useAuth'
 import { useInstitutionCases } from '@/hooks/useCase'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -48,6 +49,8 @@ function InstitutionDashboardContent() {
   const resolved = cases.filter((c) => ['JUDGMENT_ISSUED', 'FINAL_JUDGMENT', 'CLOSED'].includes(c.status)).length
   const deliberating = cases.filter((c) => c.status === 'DELIBERATING').length
   const pendingCases = cases.filter((c) => c.status === 'INSTITUTION_NOTIFIED')
+  // All cases sorted newest first, latest 5 shown on dashboard
+  const recentCases = [...cases].slice(0, 5)
 
   useEffect(() => {
     if (!user?.walletAddress) return
@@ -188,28 +191,16 @@ function InstitutionDashboardContent() {
             </div>
           </RevealItem>
 
-          {/* Pending cases */}
-          <RevealItem>
-            <div className="rounded-xl border border-border bg-card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-heading font-semibold text-foreground">Pending Cases</h2>
-                {cases.length > 0 && (
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href="/institution/cases">View all</Link>
-                  </Button>
-                )}
-              </div>
-
-              {loading ? (
-                <div className="space-y-3">
-                  {[1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+          {/* Pending — requires response */}
+          {pendingCases.length > 0 && (
+            <RevealItem>
+              <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <h2 className="font-heading font-semibold text-amber-700 dark:text-amber-400">
+                    Requires Your Response ({pendingCases.length})
+                  </h2>
                 </div>
-              ) : pendingCases.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <CheckCircle2 className="h-10 w-10 mx-auto mb-3 opacity-40" />
-                  <p className="text-sm">No cases requiring response.</p>
-                </div>
-              ) : (
                 <div className="space-y-3">
                   {pendingCases.map((c) => (
                     <CaseCard
@@ -221,6 +212,48 @@ function InstitutionDashboardContent() {
                       createdAt={c.createdAt}
                       href={`/institution/cases/${c.caseId}`}
                     />
+                  ))}
+                </div>
+              </div>
+            </RevealItem>
+          )}
+
+          {/* All cases */}
+          <RevealItem>
+            <div className="rounded-xl border border-border bg-card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-heading font-semibold text-foreground">All Cases</h2>
+                {cases.length > 5 && (
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/institution/cases">View all {cases.length}</Link>
+                  </Button>
+                )}
+              </div>
+
+              {loading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-lg" />)}
+                </div>
+              ) : cases.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <FolderOpen className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm">No cases filed against your institution yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentCases.map((c) => (
+                    <Link key={c.caseId} href={`/institution/cases/${c.caseId}`} className="block">
+                      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors px-4 py-3 cursor-pointer">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-mono text-muted-foreground">{c.caseId}</p>
+                          <p className="text-sm font-medium text-foreground truncate mt-0.5">{c.disputeType}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}
+                          </p>
+                        </div>
+                        <CaseStatusBadge status={c.status} />
+                      </div>
+                    </Link>
                   ))}
                 </div>
               )}

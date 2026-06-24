@@ -6,12 +6,12 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
   limit,
   onSnapshot,
   serverTimestamp,
   Unsubscribe,
   DocumentData,
+  deleteDoc,
 } from 'firebase/firestore'
 import { db } from '@/config/firebase'
 import { UserProfile } from '@/types'
@@ -105,35 +105,27 @@ export async function getCaseMetaForUser(caseId: string, uid: string): Promise<C
   return null
 }
 
+function sortByDate(cases: CaseMeta[]): CaseMeta[] {
+  return [...cases].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+}
+
 export async function getCasesByFiler(filerUid: string): Promise<CaseMeta[]> {
-  const q = query(
-    collection(db, 'cases'),
-    where('filerUid', '==', filerUid),
-    orderBy('createdAt', 'desc')
-  )
+  // No orderBy — avoids composite index requirement. Sort client-side.
+  const q = query(collection(db, 'cases'), where('filerUid', '==', filerUid))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => normalizeCaseMeta(d.id, d.data()))
+  return sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))
 }
 
 export async function getCasesByInstitution(institutionAddress: string): Promise<CaseMeta[]> {
-  const q = query(
-    collection(db, 'cases'),
-    where('institutionAddress', '==', institutionAddress),
-    orderBy('createdAt', 'desc')
-  )
+  const q = query(collection(db, 'cases'), where('institutionAddress', '==', institutionAddress))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => normalizeCaseMeta(d.id, d.data()))
+  return sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))
 }
 
 export async function getCasesByStatus(status: string, limitCount = 50): Promise<CaseMeta[]> {
-  const q = query(
-    collection(db, 'cases'),
-    where('status', '==', status),
-    orderBy('createdAt', 'desc'),
-    limit(limitCount)
-  )
+  const q = query(collection(db, 'cases'), where('status', '==', status), limit(limitCount))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => normalizeCaseMeta(d.id, d.data()))
+  return sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))
 }
 
 export function subscribeToCaseMeta(caseId: string, cb: (meta: CaseMeta | null) => void): Unsubscribe {
@@ -143,32 +135,25 @@ export function subscribeToCaseMeta(caseId: string, cb: (meta: CaseMeta | null) 
 }
 
 export function subscribeToCasesByFiler(filerUid: string, cb: (cases: CaseMeta[]) => void): Unsubscribe {
-  const q = query(
-    collection(db, 'cases'),
-    where('filerUid', '==', filerUid),
-    orderBy('createdAt', 'desc')
+  // No orderBy — avoids composite index requirement. Sort client-side.
+  const q = query(collection(db, 'cases'), where('filerUid', '==', filerUid))
+  return onSnapshot(
+    q,
+    (snap) => cb(sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))),
+    (err) => { console.error('[CJP] subscribeToCasesByFiler error:', err); cb([]) }
   )
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))
-  }, () => {
-    cb([])
-  })
 }
 
 export function subscribeToCasesByInstitution(
   institutionAddress: string,
   cb: (cases: CaseMeta[]) => void
 ): Unsubscribe {
-  const q = query(
-    collection(db, 'cases'),
-    where('institutionAddress', '==', institutionAddress),
-    orderBy('createdAt', 'desc')
+  const q = query(collection(db, 'cases'), where('institutionAddress', '==', institutionAddress))
+  return onSnapshot(
+    q,
+    (snap) => cb(sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))),
+    (err) => { console.error('[CJP] subscribeToCasesByInstitution error:', err); cb([]) }
   )
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))
-  }, () => {
-    cb([])
-  })
 }
 
 // ── User lookups ─────────────────────────────────────────────────────────────
@@ -240,17 +225,16 @@ export function subscribeToNotifications(
   const q = query(
     collection(db, 'notifications'),
     where('recipientUid', '==', recipientUid),
-    orderBy('createdAt', 'desc'),
     limit(20)
   )
   return onSnapshot(q, (snap) => {
-    cb(
-      snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<Notification, 'id'>),
-        createdAt: d.data().createdAt?.toMillis?.() ?? d.data().createdAt ?? 0,
-      }))
-    )
+    const notifs = snap.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<Notification, 'id'>),
+      createdAt: d.data().createdAt?.toMillis?.() ?? d.data().createdAt ?? 0,
+    }))
+    notifs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    cb(notifs)
   })
 }
 
