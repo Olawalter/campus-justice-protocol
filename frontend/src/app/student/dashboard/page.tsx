@@ -1,6 +1,6 @@
 'use client'
 
-import { FilePlus, FolderOpen, Scale, Clock, Library, Globe, ShieldCheck, TrendingUp } from 'lucide-react'
+import { FilePlus, FolderOpen, Scale, Clock, Library, Globe, ShieldCheck, TrendingUp, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { MetricCard } from '@/components/dashboard/MetricCard'
@@ -15,7 +15,7 @@ import { motion } from 'framer-motion'
 
 function StudentDashboardContent() {
   const { user } = useAuth()
-  const { cases, loading } = useStudentCases()
+  const { cases, loading, error: casesError } = useStudentCases()
 
   const active = cases.filter((c) =>
     !['JUDGMENT_ISSUED', 'FINAL_JUDGMENT', 'CLOSED'].includes(c.status)
@@ -35,6 +35,12 @@ function StudentDashboardContent() {
   return (
     <PageWrapper role="student" userName={user?.displayName ?? 'Student'}>
       <div className="space-y-8">
+        {casesError && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span><strong>Could not load cases:</strong> {casesError}</span>
+          </div>
+        )}
         <StaggeredReveal>
           <RevealItem>
             <div className="flex items-start justify-between">

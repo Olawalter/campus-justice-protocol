@@ -10,6 +10,7 @@ import { PageWrapper } from '@/components/layout/PageWrapper'
 import { AuthGuard } from '@/components/layout/AuthGuard'
 import { CaseCard } from '@/components/cases/CaseCard'
 import { CaseStatusBadge } from '@/components/cases/CaseStatusBadge'
+import { CaseStatus } from '@/types'
 import { useAuth } from '@/hooks/useAuth'
 import { useInstitutionCases } from '@/hooks/useCase'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -41,7 +42,7 @@ function ReputationRing({ score, color }: { score: number; color: string }) {
 
 function InstitutionDashboardContent() {
   const { user } = useAuth()
-  const { cases, loading } = useInstitutionCases()
+  const { cases, loading, error: casesError } = useInstitutionCases()
   const [profile, setProfile] = useState<InstitutionProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
 
@@ -67,6 +68,12 @@ function InstitutionDashboardContent() {
   return (
     <PageWrapper role="institution" userName={user?.displayName ?? 'Institution'}>
       <div className="space-y-8">
+        {casesError && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2.5">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span><strong>Could not load cases:</strong> {casesError}</span>
+          </div>
+        )}
         <StaggeredReveal>
           <RevealItem>
             <div>
@@ -251,7 +258,7 @@ function InstitutionDashboardContent() {
                             {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}
                           </p>
                         </div>
-                        <CaseStatusBadge status={c.status} />
+                        <CaseStatusBadge status={c.status as CaseStatus} />
                       </div>
                     </Link>
                   ))}

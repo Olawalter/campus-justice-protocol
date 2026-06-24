@@ -32,108 +32,104 @@ export function useCaseFiling() {
 
   const submitCase = useCallback(
     async (input: CaseFilingInput): Promise<string> => {
-      if (!user?.walletAddress || !user?.walletPrivateKey) throw new Error('Wallet not provisioned. Please re-register your account.')
+      if (!user?.uid) throw new Error('Not authenticated. Please log in and try again.')
       setSubmitting(true)
       setError(null)
 
-      const caller = { address: user.walletAddress, privateKey: user.walletPrivateKey }
+      // Wallet is only needed for GenLayer — Firestore save works without it
+      const hasWallet = !!user.walletAddress && !!user.walletPrivateKey
+      const caller = hasWallet
+        ? { address: user.walletAddress as string, privateKey: user.walletPrivateKey as `0x${string}` }
+        : null
 
       try {
-        // 1. Hash all evidence files client-side
-        const hashes = await evidence.hashAllFiles()
-
-        // 2. Upload evidence to Firebase Storage immediately (so files are safe)
+        // 1. Save to Firestore IMMEDIATELY so the case always appears on dashboard
         const tempId = `CJP-DRAFT-${Date.now()}`
-        const uploads = await evidence.uploadAll(tempId, user.uid)
-
-        // 3. Save to Firestore FIRST so the case always appears on the dashboard
-        //    even if the GenLayer call is slow or temporarily unavailable
-        await saveCaseMeta({
+        const baseMeta = {
           caseId: tempId,
           filerUid: user.uid,
-          filerName: user.displayName,
-          filerEmail: user.email,
+          filerName: user.displayName ?? '',
+          filerEmail: user.email ?? '',
           institutionAddress: input.institution,
-          institutionName: input.institutionName,
-          institutionEmail: input.institutionEmail,
+          institutionName: input.institutionName ?? '',
+          institutionEmail: input.institutionEmail ?? '',
           disputeType: input.disputeType,
           description: input.description,
           status: 'SUBMITTED',
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          evidenceFileUrls: uploads.map((u) => u.url),
-          responseFileUrls: [],
-          matricNumber: input.matricNumber,
-          department: input.department,
+          evidenceFileUrls: [] as string[],
+          responseFileUrls: [] as string[],
+          matricNumber: input.matricNumber ?? '',
+          department: input.department ?? '',
           notificationSent: false,
-        })
+        }
+        await saveCaseMeta(baseMeta)
 
-        // Case is now visible on dashboard. Try GenLayer to get the canonical on-chain ID.
-        let finalCaseId = tempId
+        // 2. Hash evidence files, then upload (non-fatal — case already saved)
+        let hashes: string[] = []
+        let uploads: Array<{ url: string; hash: string }> = []
         try {
-          let result = await contract.createCase(caller, {
-            institutionAddress: input.institution,
-            disputeType: input.disputeType,
-            description: input.description,
-            evidenceHashes: hashes,
-            matricNumber: input.matricNumber,
-            department: input.department,
-          })
+          hashes = await evidence.hashAllFiles()
+          uploads = await evidence.uploadAll(tempId, user.uid)
+          if (uploads.length > 0) {
+            await updateCaseMeta(tempId, { evidenceFileUrls: uploads.map((u) => u.url) })
+          }
+        } catch {
+          // Evidence upload failed — case is still saved, user can add evidence later
+        }
 
-          // Auto-register on-chain if not yet registered, then retry
-          if (!result.success && result.error?.includes('registered students')) {
-            await fetch('/api/register-on-chain', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ walletAddress: user.walletAddress, role: user.role }),
-            })
-            await new Promise((r) => setTimeout(r, 8000))
-            result = await contract.createCase(caller, {
+        // 3. Try GenLayer for canonical on-chain ID (needs wallet)
+        let finalCaseId = tempId
+        if (caller) {
+          try {
+            let result = await contract.createCase(caller, {
               institutionAddress: input.institution,
               disputeType: input.disputeType,
               description: input.description,
               evidenceHashes: hashes,
-              matricNumber: input.matricNumber,
-              department: input.department,
+              matricNumber: input.matricNumber ?? '',
+              department: input.department ?? '',
             })
-          }
 
-          if (result.success) {
-            const chainId = result.returnValue && result.returnValue.startsWith('CJP-')
-              ? result.returnValue
-              : null
-
-            if (chainId && chainId !== tempId) {
-              // Save a new Firestore doc with the canonical chain ID and remove the draft
-              await saveCaseMeta({
-                caseId: chainId,
-                filerUid: user.uid,
-                filerName: user.displayName,
-                filerEmail: user.email,
+            // Auto-register on-chain if not yet registered, then retry
+            if (!result.success && result.error?.includes('registered students')) {
+              await fetch('/api/register-on-chain', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ walletAddress: user.walletAddress, role: user.role }),
+              })
+              await new Promise((r) => setTimeout(r, 8000))
+              result = await contract.createCase(caller, {
                 institutionAddress: input.institution,
-                institutionName: input.institutionName,
-                institutionEmail: input.institutionEmail,
                 disputeType: input.disputeType,
                 description: input.description,
-                status: 'SUBMITTED',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                evidenceFileUrls: uploads.map((u) => u.url),
-                responseFileUrls: [],
-                matricNumber: input.matricNumber,
-                department: input.department,
-                notificationSent: false,
+                evidenceHashes: hashes,
+                matricNumber: input.matricNumber ?? '',
+                department: input.department ?? '',
               })
-              // Delete the draft doc
-              const { deleteDoc, doc: fsDoc } = await import('firebase/firestore')
-              const { db } = await import('@/config/firebase')
-              await deleteDoc(fsDoc(db, 'cases', tempId))
-              finalCaseId = chainId
             }
+
+            if (result.success) {
+              const chainId = result.returnValue && result.returnValue.startsWith('CJP-')
+                ? result.returnValue
+                : null
+
+              if (chainId && chainId !== tempId) {
+                await saveCaseMeta({
+                  ...baseMeta,
+                  caseId: chainId,
+                  evidenceFileUrls: uploads.map((u) => u.url),
+                })
+                const { deleteDoc, doc: fsDoc } = await import('firebase/firestore')
+                const { db } = await import('@/config/firebase')
+                await deleteDoc(fsDoc(db, 'cases', tempId))
+                finalCaseId = chainId
+              }
+            }
+          } catch {
+            // GenLayer unavailable — draft case stays in Firestore
           }
-        } catch {
-          // GenLayer unavailable — draft case stays in Firestore, will be
-          // linked to the chain later when GenLayer is back online
         }
 
         // 4. Notify all admins
@@ -197,20 +193,33 @@ export function useStudentCases() {
   const { user } = useAuth()
   const [cases, setCases] = useState<CaseMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const setCaseCache = useStore((s) => s.setCaseCache)
 
   useEffect(() => {
-    if (!user?.uid) return
-    setLoading(true)
-    const unsub = subscribeToCasesByFiler(user.uid, (list) => {
-      setCases(list)
-      setCaseCache(list)
+    if (!user?.uid) {
       setLoading(false)
-    })
+      return
+    }
+    setLoading(true)
+    setError(null)
+    const unsub = subscribeToCasesByFiler(
+      user.uid,
+      (list) => {
+        setCases(list)
+        setCaseCache(list)
+        setLoading(false)
+      },
+      (err) => {
+        console.error('[CJP] useStudentCases error:', err)
+        setError(err.message ?? 'Failed to load cases. Check Firestore rules.')
+        setLoading(false)
+      }
+    )
     return unsub
   }, [user?.uid, setCaseCache])
 
-  return { cases, loading }
+  return { cases, loading, error }
 }
 
 // ── Institution case list ─────────────────────────────────────────────────────
@@ -219,23 +228,36 @@ export function useInstitutionCases() {
   const { user } = useAuth()
   const [cases, setCases] = useState<CaseMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const setCaseCache = useStore((s) => s.setCaseCache)
 
   useEffect(() => {
     // institutionId is the on-chain address the student selects when filing
     // (e.g. 0x000...0001 for UNILAG) — NOT the user's auto-provisioned walletAddress
     const institutionAddress = user?.institutionId ?? user?.walletAddress
-    if (!institutionAddress) return
-    setLoading(true)
-    const unsub = subscribeToCasesByInstitution(institutionAddress, (list) => {
-      setCases(list)
-      setCaseCache(list)
+    if (!institutionAddress) {
       setLoading(false)
-    })
+      return
+    }
+    setLoading(true)
+    setError(null)
+    const unsub = subscribeToCasesByInstitution(
+      institutionAddress,
+      (list) => {
+        setCases(list)
+        setCaseCache(list)
+        setLoading(false)
+      },
+      (err) => {
+        console.error('[CJP] useInstitutionCases error:', err)
+        setError(err.message ?? 'Failed to load cases. Check Firestore rules.')
+        setLoading(false)
+      }
+    )
     return unsub
   }, [user?.institutionId, user?.walletAddress, setCaseCache])
 
-  return { cases, loading }
+  return { cases, loading, error }
 }
 
 // ── Single case (GenLayer source of truth + Firestore metadata) ───────────────

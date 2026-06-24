@@ -11,7 +11,6 @@ import {
   serverTimestamp,
   Unsubscribe,
   DocumentData,
-  deleteDoc,
 } from 'firebase/firestore'
 import { db } from '@/config/firebase'
 import { UserProfile } from '@/types'
@@ -134,25 +133,36 @@ export function subscribeToCaseMeta(caseId: string, cb: (meta: CaseMeta | null) 
   })
 }
 
-export function subscribeToCasesByFiler(filerUid: string, cb: (cases: CaseMeta[]) => void): Unsubscribe {
+export function subscribeToCasesByFiler(
+  filerUid: string,
+  cb: (cases: CaseMeta[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
   // No orderBy — avoids composite index requirement. Sort client-side.
   const q = query(collection(db, 'cases'), where('filerUid', '==', filerUid))
   return onSnapshot(
     q,
     (snap) => cb(sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))),
-    (err) => { console.error('[CJP] subscribeToCasesByFiler error:', err); cb([]) }
+    (err) => {
+      console.error('[CJP] subscribeToCasesByFiler error:', err)
+      if (onError) { onError(err) } else { cb([]) }
+    }
   )
 }
 
 export function subscribeToCasesByInstitution(
   institutionAddress: string,
-  cb: (cases: CaseMeta[]) => void
+  cb: (cases: CaseMeta[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(collection(db, 'cases'), where('institutionAddress', '==', institutionAddress))
   return onSnapshot(
     q,
     (snap) => cb(sortByDate(snap.docs.map((d) => normalizeCaseMeta(d.id, d.data())))),
-    (err) => { console.error('[CJP] subscribeToCasesByInstitution error:', err); cb([]) }
+    (err) => {
+      console.error('[CJP] subscribeToCasesByInstitution error:', err)
+      if (onError) { onError(err) } else { cb([]) }
+    }
   )
 }
 
@@ -278,5 +288,9 @@ function normalizeCaseMeta(id: string, data: DocumentData): CaseMeta {
     matricNumber: toStr(data.matricNumber),
     department: toStr(data.department),
     notificationSent: !!data.notificationSent,
+    ...(data.responseText != null && { responseText: toStr(data.responseText) }),
+    ...(data.appealGrounds != null && { appealGrounds: toStr(data.appealGrounds) }),
+    ...(data.judgment != null && { judgment: data.judgment }),
+    ...(data.appealJudgment != null && { appealJudgment: data.appealJudgment }),
   }
 }
