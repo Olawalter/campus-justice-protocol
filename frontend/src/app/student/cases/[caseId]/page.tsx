@@ -14,7 +14,6 @@ import { PageWrapper } from '@/components/layout/PageWrapper'
 import { AuthGuard } from '@/components/layout/AuthGuard'
 import { CaseStatusBadge } from '@/components/cases/CaseStatusBadge'
 import { CaseTimeline } from '@/components/cases/CaseTimeline'
-import { AICaseAnalysis } from '@/components/cases/AICaseAnalysis'
 import { JudgmentReveal } from '@/components/animations/JudgmentReveal'
 import { EvidenceVault } from '@/components/cases/EvidenceVault'
 import { AIDeliberationPanel } from '@/components/cases/AIDeliberationPanel'
@@ -198,17 +197,6 @@ function CaseDetailContent({ caseId }: { caseId: string }) {
                 )}
               </div>
             </div>
-
-            {/* AI Case Analysis */}
-            <AICaseAnalysis
-              caseId={displayId}
-              disputeType={disputeType}
-              description={description}
-              institutionName={instName || institution}
-              department={dept}
-              matricNumber={matric}
-              evidenceCount={hashes.length || (meta?.evidenceFileUrls?.length ?? 0)}
-            />
 
             {/* Evidence Vault */}
             <EvidenceVault hashes={hashes} label="Evidence Vault" />

@@ -21,7 +21,6 @@ import { CaseStatus, JudgmentOutcome } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { getCaseMeta } from '@/services/firebase/firestore'
-import { AICaseAnalysis } from '@/components/cases/AICaseAnalysis'
 
 function AdminCaseDetailContent({ caseId }: { caseId: string }) {
   const { user } = useAuth()
@@ -168,17 +167,6 @@ function AdminCaseDetailContent({ caseId }: { caseId: string }) {
                 <p className="text-sm text-foreground leading-relaxed">{c.description}</p>
               </div>
             </div>
-
-            {/* AI Case Analysis */}
-            <AICaseAnalysis
-              caseId={c.caseId}
-              disputeType={c.disputeType}
-              description={c.description}
-              institutionName={c.institutionName ?? c.institution}
-              department={c.department}
-              matricNumber={c.matricNumber}
-              evidenceCount={c.evidenceHashes.length}
-            />
 
             {/* Evidence Vault — student files */}
             <EvidenceVault hashes={c.evidenceHashes} label="Student Evidence Vault" />
