@@ -1,15 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Scale, Mail, Lock, User, Building2, ArrowRight, AlertCircle, Hash, BookOpen } from 'lucide-react'
+import { Scale, Mail, Lock, User, Building2, ArrowRight, AlertCircle, Hash, BookOpen, Search, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Navbar } from '@/components/layout/Navbar'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/hooks/useAuth'
+import { INSTITUTIONS } from '@/config/institutions'
 
 type Role = 'student' | 'institution'
 
@@ -24,7 +25,38 @@ export default function RegisterPage() {
   const [matricNumber, setMatricNumber] = useState('')
   const [department, setDepartment] = useState('')
   const [domain, setDomain] = useState('')
+
+  // Institution selector state
   const [institutionId, setInstitutionId] = useState('')
+  const [selectedInstitutionName, setSelectedInstitutionName] = useState('')
+  const [instSearch, setInstSearch] = useState('')
+  const [showInstDropdown, setShowInstDropdown] = useState(false)
+
+  const filteredInstitutions = useMemo(() => {
+    if (!instSearch.trim()) return INSTITUTIONS
+    const q = instSearch.toLowerCase()
+    return INSTITUTIONS.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.region.toLowerCase().includes(q)
+    )
+  }, [instSearch])
+
+  const groupedInstitutions = useMemo(() => {
+    const groups: Record<string, typeof INSTITUTIONS> = {}
+    for (const inst of filteredInstitutions) {
+      if (!groups[inst.region]) groups[inst.region] = []
+      groups[inst.region].push(inst)
+    }
+    return groups
+  }, [filteredInstitutions])
+
+  function selectInstitution(address: string, name: string) {
+    setInstitutionId(address)
+    setSelectedInstitutionName(name)
+    setShowInstDropdown(false)
+    setInstSearch('')
+    // Auto-fill display name if empty
+    if (!displayName) setDisplayName(name)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -33,7 +65,7 @@ export default function RegisterPage() {
       const extra =
         role === 'student'
           ? { matricNumber, department }
-          : { domain, institutionId: institutionId.trim() || undefined }
+          : { domain, institutionId: institutionId || undefined }
       const profile = await register(email, password, displayName, glRole, extra)
       const redirect =
         profile.role === 'STUDENT' ? '/student/dashboard'
@@ -92,9 +124,76 @@ export default function RegisterPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Institution selector — shown first for institution role */}
+              {role === 'institution' && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">Select Your Institution</label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowInstDropdown(!showInstDropdown)}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-secondary"
+                    >
+                      <span className={selectedInstitutionName ? 'text-foreground' : 'text-muted-foreground'}>
+                        {selectedInstitutionName || 'Search and select your institution…'}
+                      </span>
+                      {selectedInstitutionName
+                        ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                        : <svg className={`h-4 w-4 text-muted-foreground transition-transform ${showInstDropdown ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      }
+                    </button>
+
+                    {showInstDropdown && (
+                      <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow-xl max-h-64 overflow-hidden flex flex-col">
+                        <div className="p-2 border-b border-border">
+                          <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <input
+                              type="text"
+                              placeholder="Search institutions…"
+                              value={instSearch}
+                              onChange={(e) => setInstSearch(e.target.value)}
+                              className="w-full h-9 pl-8 pr-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-secondary"
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                          {Object.entries(groupedInstitutions).map(([region, insts]) => (
+                            <div key={region}>
+                              <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50 sticky top-0">
+                                {region}
+                              </div>
+                              {insts.map((inst) => (
+                                <button
+                                  key={inst.address}
+                                  type="button"
+                                  onClick={() => selectInstitution(inst.address, inst.name)}
+                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-secondary/10 transition-colors ${institutionId === inst.address ? 'bg-secondary/10 text-secondary font-medium' : 'text-foreground'}`}
+                                >
+                                  {inst.name}
+                                </button>
+                              ))}
+                            </div>
+                          ))}
+                          {filteredInstitutions.length === 0 && (
+                            <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                              No institutions match &quot;{instSearch}&quot;
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    This links your account to cases filed against your institution.
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-foreground">
-                  {role === 'student' ? 'Full Name' : 'Institution Name'}
+                  {role === 'student' ? 'Full Name' : 'Contact Person Name'}
                 </label>
                 <div className="relative">
                   {role === 'student'
@@ -103,7 +202,7 @@ export default function RegisterPage() {
                   }
                   <Input
                     className="pl-9"
-                    placeholder={role === 'student' ? 'John Doe' : 'University of Lagos'}
+                    placeholder={role === 'student' ? 'John Doe' : 'e.g. Registrar / Dean of Students'}
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     required
@@ -118,7 +217,7 @@ export default function RegisterPage() {
                   <Input
                     className="pl-9"
                     type="email"
-                    placeholder={role === 'student' ? 'you@university.edu' : 'admin@university.edu'}
+                    placeholder={role === 'student' ? 'you@university.edu' : 'registrar@university.edu'}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -174,37 +273,18 @@ export default function RegisterPage() {
               )}
 
               {role === 'institution' && (
-                <>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-foreground">Institution Domain</label>
-                    <div className="relative">
-                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        className="pl-9"
-                        placeholder="university.edu"
-                        value={domain}
-                        onChange={(e) => setDomain(e.target.value)}
-                      />
-                    </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">Institution Domain</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="university.edu"
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value)}
+                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium text-foreground">
-                      Institution Address <span className="text-muted-foreground font-normal">(on-chain ID)</span>
-                    </label>
-                    <div className="relative">
-                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        className="pl-9 font-mono text-sm"
-                        placeholder="0x0000000000000000000000000000000000000001"
-                        value={institutionId}
-                        onChange={(e) => setInstitutionId(e.target.value)}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Enter the blockchain address assigned to your institution by the CJP administrator. This links your account to cases filed against your institution.
-                    </p>
-                  </div>
-                </>
+                </div>
               )}
 
               <Button
