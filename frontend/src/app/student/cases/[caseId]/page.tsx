@@ -14,6 +14,7 @@ import { PageWrapper } from '@/components/layout/PageWrapper'
 import { AuthGuard } from '@/components/layout/AuthGuard'
 import { CaseStatusBadge } from '@/components/cases/CaseStatusBadge'
 import { CaseTimeline } from '@/components/cases/CaseTimeline'
+import { AICaseAnalysis } from '@/components/cases/AICaseAnalysis'
 import { JudgmentReveal } from '@/components/animations/JudgmentReveal'
 import { EvidenceVault } from '@/components/cases/EvidenceVault'
 import { AIDeliberationPanel } from '@/components/cases/AIDeliberationPanel'
@@ -129,6 +130,12 @@ function CaseDetailContent({ caseId }: { caseId: string }) {
           </div>
         )}
 
+        {/* Progress stepper — full width, prominent */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-5">Case Progress</p>
+          <CaseTimeline currentStatus={validStatus} variant="horizontal" />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           {/* Left — main content */}
@@ -191,6 +198,17 @@ function CaseDetailContent({ caseId }: { caseId: string }) {
                 )}
               </div>
             </div>
+
+            {/* AI Case Analysis */}
+            <AICaseAnalysis
+              caseId={displayId}
+              disputeType={disputeType}
+              description={description}
+              institutionName={instName || institution}
+              department={dept}
+              matricNumber={matric}
+              evidenceCount={hashes.length || (meta?.evidenceFileUrls?.length ?? 0)}
+            />
 
             {/* Evidence Vault */}
             <EvidenceVault hashes={hashes} label="Evidence Vault" />
@@ -311,14 +329,6 @@ function CaseDetailContent({ caseId }: { caseId: string }) {
 
           {/* Right sidebar */}
           <div className="space-y-4">
-            {/* Progress */}
-            <div className="bg-card border border-border rounded-xl p-5">
-              <h2 className="font-heading font-semibold text-sm uppercase tracking-wide text-muted-foreground mb-5">
-                Progress
-              </h2>
-              <CaseTimeline currentStatus={validStatus} />
-            </div>
-
             {/* Decentralized Court */}
             <DecentralizedCourtInfo />
 

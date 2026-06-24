@@ -99,6 +99,12 @@ function InstitutionCaseDetailContent({ caseId }: { caseId: string }) {
           </Button>
         </div>
 
+        {/* Progress stepper */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-5">Case Progress</p>
+          <CaseTimeline currentStatus={c.status} variant="horizontal" />
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-5">
 
