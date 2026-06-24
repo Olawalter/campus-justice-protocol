@@ -13,7 +13,6 @@ import {
   createNotification,
   getAdminUids,
   getUserByWalletAddress,
-  getUserByInstitutionId,
   getCaseMeta,
   getCasesByFiler,
   getCasesByInstitution,
@@ -91,6 +90,7 @@ export function useCaseFiling() {
           filerEmail: user.email,
           institutionAddress: input.institution,
           institutionName: input.institutionName,
+          institutionEmail: input.institutionEmail,
           disputeType: input.disputeType,
           description: input.description,
           status: 'SUBMITTED',
@@ -120,31 +120,17 @@ export function useCaseFiling() {
           // Non-fatal: admin notifications are best-effort
         }
 
-        // 6. Notify the institution if they have an account (by institutionId link)
-        try {
-          const instUser = await getUserByInstitutionId(input.institution)
-          if (instUser) {
-            await createNotification({
-              recipientUid: instUser.uid,
-              type: 'CASE_FILED',
-              caseId: newCaseId,
-              message: `A new dispute (${newCaseId}) has been filed against your institution by ${user.displayName}.`,
-            })
-            // Email the institution
-            if (instUser.email) {
-              sendCaseEmail({
-                to: instUser.email,
-                type: 'CASE_FILED_INSTITUTION',
-                caseId: newCaseId,
-                institutionName: input.institutionName,
-                disputeType: input.disputeType,
-                description: input.description,
-                studentName: user.displayName,
-              })
-            }
-          }
-        } catch {
-          // Non-fatal
+        // 6. Email the institution directly using the address provided on the form
+        if (input.institutionEmail) {
+          sendCaseEmail({
+            to: input.institutionEmail,
+            type: 'CASE_FILED_INSTITUTION',
+            caseId: newCaseId,
+            institutionName: input.institutionName,
+            disputeType: input.disputeType,
+            description: input.description,
+            studentName: user.displayName,
+          })
         }
 
         // 7. Confirmation email to the student
@@ -439,9 +425,11 @@ export function useAdminCaseActions() {
             caseId,
             message: `A verified dispute case ${caseId} has been filed against your institution. Please review and respond.`,
           })
-          if (instUser.email) {
+          // Also email via saved institutionEmail on case
+          const emailTarget = instUser.email || meta?.institutionEmail
+          if (emailTarget) {
             sendCaseEmail({
-              to: instUser.email,
+              to: emailTarget,
               type: 'INSTITUTION_NOTIFIED',
               caseId,
               institutionName: meta?.institutionName ?? '',

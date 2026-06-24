@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Upload, X, FileText, AlertCircle, CheckCircle2, Search } from 'lucide-react'
+import { Upload, X, FileText, AlertCircle, CheckCircle2, Search, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -142,6 +142,7 @@ function FileDisputeContent() {
 
   const [institution, setInstitution] = useState('')
   const [customInstitution, setCustomInstitution] = useState('')
+  const [institutionEmail, setInstitutionEmail] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
   const [disputeType, setDisputeType] = useState<DisputeType | ''>('')
@@ -194,6 +195,7 @@ function FileDisputeContent() {
       const caseId = await submitCase({
         institution: isCustom ? CUSTOM_ADDRESS : institution,
         institutionName: selectedName,
+        institutionEmail,
         disputeType: disputeType as DisputeType,
         description,
         evidenceFiles: evidence.files,
@@ -330,6 +332,26 @@ function FileDisputeContent() {
                 autoFocus
               />
             )}
+          </div>
+
+          {/* Institution email */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">
+              Institution Email <span className="text-muted-foreground font-normal text-xs">(for direct notification)</span>
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                type="email"
+                placeholder="registrar@university.edu"
+                value={institutionEmail}
+                onChange={(e) => setInstitutionEmail(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Enter the email of the registrar, dean, or student affairs office. They will receive an immediate email notification about this case.
+            </p>
           </div>
 
           {/* Dispute type */}

@@ -56,7 +56,7 @@ function makeFile(name: string, content = 'pdf-data'): File {
 }
 
 const SUBMIT_ARGS = {
-  institution: '0xINST01', institutionName: 'Test University',
+  institution: '0xINST01', institutionName: 'Test University', institutionEmail: 'registrar@test.edu',
   disputeType: 'GPA_MISCALCULATION' as const,
   description: 'My GPA was incorrectly computed in semester 2 due to a data entry error by the registrar.',
   matricNumber: '2020/12345',

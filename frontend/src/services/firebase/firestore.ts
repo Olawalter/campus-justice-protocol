@@ -31,6 +31,7 @@ export interface CaseMeta {
   filerEmail: string
   institutionAddress: string
   institutionName: string
+  institutionEmail: string
   disputeType: string
   description: string
   status: string
@@ -266,6 +267,7 @@ function normalizeCaseMeta(id: string, data: DocumentData): CaseMeta {
     filerEmail: toStr(data.filerEmail),
     institutionAddress: toStr(data.institutionAddress),
     institutionName: toStr(data.institutionName),
+    institutionEmail: toStr(data.institutionEmail),
     disputeType: toStr(data.disputeType),
     description: toStr(data.description),
     status: toStr(data.status) || 'SUBMITTED',
