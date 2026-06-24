@@ -1,7 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { CheckCircle2, Clock, Circle, Gavel, Building2, MessageSquare, Brain, ShieldCheck, FileCheck, Lock } from 'lucide-react'
+import { CheckCircle2, Clock, Gavel, Building2, MessageSquare, Brain, ShieldCheck, FileCheck, Lock } from 'lucide-react'
 import { CaseStatus } from '@/types'
 import { cn } from '@/utils/cn'
 
