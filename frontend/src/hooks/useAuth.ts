@@ -40,7 +40,7 @@ export function useAuth() {
       password: string,
       displayName: string,
       role: UserRole,
-      extra?: { matricNumber?: string; department?: string; institutionId?: string }
+      extra?: { matricNumber?: string; department?: string; institutionId?: string; domain?: string }
     ) => {
       setError(null)
       setLoading(true)

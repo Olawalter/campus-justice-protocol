@@ -13,11 +13,14 @@ import {
   createNotification,
   getAdminUids,
   getUserByWalletAddress,
+  getUserByInstitutionId,
+  getUserEmail,
   getCaseMeta,
   getCasesByFiler,
   getCasesByInstitution,
 } from '@/services/firebase/firestore'
 import * as contract from '@/services/genlayer/contract'
+import { sendCaseEmail } from '@/services/email'
 import { CaseFilingInput, Case } from '@/types'
 
 // ── Case filing ───────────────────────────────────────────────────────────────
@@ -118,20 +121,42 @@ export function useCaseFiling() {
           // Non-fatal: admin notifications are best-effort
         }
 
-        // 6. Notify the institution if they have an account
+        // 6. Notify the institution if they have an account (by institutionId link)
         try {
-          const instUser = await getUserByWalletAddress(input.institution)
+          const instUser = await getUserByInstitutionId(input.institution)
           if (instUser) {
             await createNotification({
               recipientUid: instUser.uid,
               type: 'CASE_FILED',
               caseId: newCaseId,
-              message: `A new dispute (${newCaseId}) has been filed against your institution by a student.`,
+              message: `A new dispute (${newCaseId}) has been filed against your institution by ${user.displayName}.`,
             })
+            // Email the institution
+            if (instUser.email) {
+              sendCaseEmail({
+                to: instUser.email,
+                type: 'CASE_FILED_INSTITUTION',
+                caseId: newCaseId,
+                institutionName: input.institutionName,
+                disputeType: input.disputeType,
+                description: input.description,
+                studentName: user.displayName,
+              })
+            }
           }
         } catch {
           // Non-fatal
         }
+
+        // 7. Confirmation email to the student
+        sendCaseEmail({
+          to: user.email,
+          type: 'CASE_FILED_STUDENT_CONFIRM',
+          caseId: newCaseId,
+          institutionName: input.institutionName,
+          disputeType: input.disputeType,
+          studentName: user.displayName,
+        })
 
         setCaseId(newCaseId)
         evidence.reset()
@@ -377,6 +402,19 @@ export function useAdminCaseActions() {
         'CASE_VERIFIED',
         `Your case ${caseId} has been verified and is now under review.`
       )
+      // Email student
+      try {
+        const meta = await getCaseMeta(caseId)
+        if (meta?.filerEmail) {
+          sendCaseEmail({
+            to: meta.filerEmail,
+            type: 'CASE_VERIFIED',
+            caseId,
+            institutionName: meta.institutionName,
+            disputeType: meta.disputeType,
+          })
+        }
+      } catch { /* non-fatal */ }
     },
     [user, performAction]
   )
@@ -402,6 +440,17 @@ export function useAdminCaseActions() {
             caseId,
             message: `A verified dispute case ${caseId} has been filed against your institution. Please review and respond.`,
           })
+          if (instUser.email) {
+            sendCaseEmail({
+              to: instUser.email,
+              type: 'INSTITUTION_NOTIFIED',
+              caseId,
+              institutionName: meta?.institutionName ?? '',
+              disputeType: meta?.disputeType ?? '',
+              description: meta?.description,
+              studentName: meta?.filerName,
+            })
+          }
         }
 
         // Also notify the student that institution has been notified
@@ -448,6 +497,16 @@ export function useAdminCaseActions() {
             })
           )
         )
+        // Email student judgment is coming
+        if (meta?.filerEmail) {
+          sendCaseEmail({
+            to: meta.filerEmail,
+            type: 'JUDGMENT_ISSUED',
+            caseId,
+            institutionName: meta.institutionName,
+            disputeType: meta.disputeType,
+          })
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Evaluation failed'
         setError(msg)
@@ -482,6 +541,16 @@ export function useAdminCaseActions() {
             })
           )
         )
+        // Final judgment email to student
+        if (meta?.filerEmail) {
+          sendCaseEmail({
+            to: meta.filerEmail,
+            type: 'FINAL_JUDGMENT',
+            caseId,
+            institutionName: meta.institutionName,
+            disputeType: meta.disputeType,
+          })
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Appeal evaluation failed'
         setError(msg)
@@ -530,6 +599,16 @@ export function useInstitutionResponse() {
             caseId,
             message: `The institution has submitted their response to your case ${caseId}.`,
           })
+          if (meta.filerEmail) {
+            sendCaseEmail({
+              to: meta.filerEmail,
+              type: 'RESPONSE_SUBMITTED',
+              caseId,
+              institutionName: meta.institutionName,
+              disputeType: meta.disputeType,
+              responseText,
+            })
+          }
         }
 
         // Also notify admins so they can trigger evaluation
@@ -592,6 +671,15 @@ export function useAppeal() {
             caseId,
             message: `The student has filed an appeal for case ${caseId}.`,
           })
+          if (instUser.email) {
+            sendCaseEmail({
+              to: instUser.email,
+              type: 'APPEAL_FILED',
+              caseId,
+              institutionName: caseData.institutionName ?? '',
+              disputeType: caseData.disputeType ?? '',
+            })
+          }
         }
 
         try {

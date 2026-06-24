@@ -156,7 +156,7 @@ export function subscribeToCasesByInstitution(
 
 // ── User lookups ─────────────────────────────────────────────────────────────
 
-export async function getUserByWalletAddress(walletAddress: string): Promise<{ uid: string; displayName: string } | null> {
+export async function getUserByWalletAddress(walletAddress: string): Promise<{ uid: string; displayName: string; email?: string } | null> {
   const q = query(
     collection(db, 'users'),
     where('walletAddress', '==', walletAddress),
@@ -165,7 +165,25 @@ export async function getUserByWalletAddress(walletAddress: string): Promise<{ u
   const snap = await getDocs(q)
   if (snap.empty) return null
   const d = snap.docs[0]
-  return { uid: d.id, displayName: d.data().displayName ?? '' }
+  return { uid: d.id, displayName: d.data().displayName ?? '', email: d.data().email }
+}
+
+export async function getUserByInstitutionId(institutionId: string): Promise<{ uid: string; displayName: string; email?: string } | null> {
+  const q = query(
+    collection(db, 'users'),
+    where('institutionId', '==', institutionId),
+    where('role', '==', 'INSTITUTION'),
+    limit(1)
+  )
+  const snap = await getDocs(q)
+  if (snap.empty) return null
+  const d = snap.docs[0]
+  return { uid: d.id, displayName: d.data().displayName ?? '', email: d.data().email }
+}
+
+export async function getUserEmail(uid: string): Promise<string | null> {
+  const snap = await getDoc(doc(db, 'users', uid))
+  return snap.exists() ? (snap.data().email ?? null) : null
 }
 
 export async function getAdminUids(): Promise<string[]> {

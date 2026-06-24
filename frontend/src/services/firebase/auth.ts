@@ -23,7 +23,7 @@ export async function registerUser(
   password: string,
   displayName: string,
   role: UserRole,
-  extra: { matricNumber?: string; department?: string; institutionId?: string } = {}
+  extra: { matricNumber?: string; department?: string; institutionId?: string; domain?: string } = {}
 ): Promise<UserProfile> {
   const credential = await createUserWithEmailAndPassword(auth, email, password)
   const { user } = credential

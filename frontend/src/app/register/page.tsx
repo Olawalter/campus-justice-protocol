@@ -24,6 +24,7 @@ export default function RegisterPage() {
   const [matricNumber, setMatricNumber] = useState('')
   const [department, setDepartment] = useState('')
   const [domain, setDomain] = useState('')
+  const [institutionId, setInstitutionId] = useState('')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -32,7 +33,7 @@ export default function RegisterPage() {
       const extra =
         role === 'student'
           ? { matricNumber, department }
-          : { domain }
+          : { domain, institutionId: institutionId.trim() || undefined }
       const profile = await register(email, password, displayName, glRole, extra)
       const redirect =
         profile.role === 'STUDENT' ? '/student/dashboard'
@@ -173,18 +174,37 @@ export default function RegisterPage() {
               )}
 
               {role === 'institution' && (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-foreground">Institution Domain</label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      className="pl-9"
-                      placeholder="university.edu"
-                      value={domain}
-                      onChange={(e) => setDomain(e.target.value)}
-                    />
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">Institution Domain</label>
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="pl-9"
+                        placeholder="university.edu"
+                        value={domain}
+                        onChange={(e) => setDomain(e.target.value)}
+                      />
+                    </div>
                   </div>
-                </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
+                      Institution Address <span className="text-muted-foreground font-normal">(on-chain ID)</span>
+                    </label>
+                    <div className="relative">
+                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="pl-9 font-mono text-sm"
+                        placeholder="0x0000000000000000000000000000000000000001"
+                        value={institutionId}
+                        onChange={(e) => setInstitutionId(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter the blockchain address assigned to your institution by the CJP administrator. This links your account to cases filed against your institution.
+                    </p>
+                  </div>
+                </>
               )}
 
               <Button
