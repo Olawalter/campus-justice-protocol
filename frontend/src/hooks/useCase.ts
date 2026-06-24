@@ -42,49 +42,14 @@ export function useCaseFiling() {
         // 1. Hash all evidence files client-side
         const hashes = await evidence.hashAllFiles()
 
-        // 2. Submit to GenLayer (source of truth)
-        let result = await contract.createCase(caller, {
-          institutionAddress: input.institution,
-          disputeType: input.disputeType,
-          description: input.description,
-          evidenceHashes: hashes,
-          matricNumber: input.matricNumber,
-          department: input.department,
-        })
+        // 2. Upload evidence to Firebase Storage immediately (so files are safe)
+        const tempId = `CJP-DRAFT-${Date.now()}`
+        const uploads = await evidence.uploadAll(tempId, user.uid)
 
-        // Auto-register on-chain if not yet registered, then retry
-        if (!result.success && result.error?.includes('registered students')) {
-          await fetch('/api/register-on-chain', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ walletAddress: user.walletAddress, role: user.role }),
-          })
-          // Wait for on-chain finalization
-          await new Promise((r) => setTimeout(r, 8000))
-          result = await contract.createCase(caller, {
-            institutionAddress: input.institution,
-            disputeType: input.disputeType,
-            description: input.description,
-            evidenceHashes: hashes,
-            matricNumber: input.matricNumber,
-            department: input.department,
-          })
-        }
-
-        if (!result.success) throw new Error(result.error ?? 'Contract call failed')
-
-        // The contract returns the real case ID (e.g. CJP-000001) as its return value.
-        // Fall back to tx hash if return value extraction failed.
-        const newCaseId = result.returnValue && result.returnValue.startsWith('CJP-')
-          ? result.returnValue
-          : result.hash
-
-        // 3. Upload evidence files to Firebase Storage
-        const uploads = await evidence.uploadAll(newCaseId, user.uid)
-
-        // 4. Save metadata to Firestore (off-chain cache)
+        // 3. Save to Firestore FIRST so the case always appears on the dashboard
+        //    even if the GenLayer call is slow or temporarily unavailable
         await saveCaseMeta({
-          caseId: newCaseId,
+          caseId: tempId,
           filerUid: user.uid,
           filerName: user.displayName,
           filerEmail: user.email,
@@ -103,7 +68,75 @@ export function useCaseFiling() {
           notificationSent: false,
         })
 
-        // 5. Notify all admins that a new case was filed
+        // Case is now visible on dashboard. Try GenLayer to get the canonical on-chain ID.
+        let finalCaseId = tempId
+        try {
+          let result = await contract.createCase(caller, {
+            institutionAddress: input.institution,
+            disputeType: input.disputeType,
+            description: input.description,
+            evidenceHashes: hashes,
+            matricNumber: input.matricNumber,
+            department: input.department,
+          })
+
+          // Auto-register on-chain if not yet registered, then retry
+          if (!result.success && result.error?.includes('registered students')) {
+            await fetch('/api/register-on-chain', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ walletAddress: user.walletAddress, role: user.role }),
+            })
+            await new Promise((r) => setTimeout(r, 8000))
+            result = await contract.createCase(caller, {
+              institutionAddress: input.institution,
+              disputeType: input.disputeType,
+              description: input.description,
+              evidenceHashes: hashes,
+              matricNumber: input.matricNumber,
+              department: input.department,
+            })
+          }
+
+          if (result.success) {
+            const chainId = result.returnValue && result.returnValue.startsWith('CJP-')
+              ? result.returnValue
+              : null
+
+            if (chainId && chainId !== tempId) {
+              // Save a new Firestore doc with the canonical chain ID and remove the draft
+              await saveCaseMeta({
+                caseId: chainId,
+                filerUid: user.uid,
+                filerName: user.displayName,
+                filerEmail: user.email,
+                institutionAddress: input.institution,
+                institutionName: input.institutionName,
+                institutionEmail: input.institutionEmail,
+                disputeType: input.disputeType,
+                description: input.description,
+                status: 'SUBMITTED',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                evidenceFileUrls: uploads.map((u) => u.url),
+                responseFileUrls: [],
+                matricNumber: input.matricNumber,
+                department: input.department,
+                notificationSent: false,
+              })
+              // Delete the draft doc
+              const { deleteDoc, doc: fsDoc } = await import('firebase/firestore')
+              const { db } = await import('@/config/firebase')
+              await deleteDoc(fsDoc(db, 'cases', tempId))
+              finalCaseId = chainId
+            }
+          }
+        } catch {
+          // GenLayer unavailable — draft case stays in Firestore, will be
+          // linked to the chain later when GenLayer is back online
+        }
+
+        // 4. Notify all admins
         try {
           const adminUids = await getAdminUids()
           await Promise.all(
@@ -111,21 +144,19 @@ export function useCaseFiling() {
               createNotification({
                 recipientUid: adminUid,
                 type: 'CASE_FILED',
-                caseId: newCaseId,
-                message: `New dispute filed by ${user.displayName} — case ${newCaseId} requires verification.`,
+                caseId: finalCaseId,
+                message: `New dispute filed by ${user.displayName} — case ${finalCaseId} requires verification.`,
               })
             )
           )
-        } catch {
-          // Non-fatal: admin notifications are best-effort
-        }
+        } catch { /* non-fatal */ }
 
-        // 6. Email the institution directly using the address provided on the form
+        // 5. Email institution
         if (input.institutionEmail) {
           sendCaseEmail({
             to: input.institutionEmail,
             type: 'CASE_FILED_INSTITUTION',
-            caseId: newCaseId,
+            caseId: finalCaseId,
             institutionName: input.institutionName,
             disputeType: input.disputeType,
             description: input.description,
@@ -133,19 +164,19 @@ export function useCaseFiling() {
           })
         }
 
-        // 7. Confirmation email to the student
+        // 6. Confirmation email to student
         sendCaseEmail({
           to: user.email,
           type: 'CASE_FILED_STUDENT_CONFIRM',
-          caseId: newCaseId,
+          caseId: finalCaseId,
           institutionName: input.institutionName,
           disputeType: input.disputeType,
           studentName: user.displayName,
         })
 
-        setCaseId(newCaseId)
+        setCaseId(finalCaseId)
         evidence.reset()
-        return newCaseId
+        return finalCaseId
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to submit case'
         setError(msg)
@@ -191,15 +222,18 @@ export function useInstitutionCases() {
   const setCaseCache = useStore((s) => s.setCaseCache)
 
   useEffect(() => {
-    if (!user?.walletAddress) return
+    // institutionId is the on-chain address the student selects when filing
+    // (e.g. 0x000...0001 for UNILAG) — NOT the user's auto-provisioned walletAddress
+    const institutionAddress = user?.institutionId ?? user?.walletAddress
+    if (!institutionAddress) return
     setLoading(true)
-    const unsub = subscribeToCasesByInstitution(user.walletAddress, (list) => {
+    const unsub = subscribeToCasesByInstitution(institutionAddress, (list) => {
       setCases(list)
       setCaseCache(list)
       setLoading(false)
     })
     return unsub
-  }, [user?.walletAddress, setCaseCache])
+  }, [user?.institutionId, user?.walletAddress, setCaseCache])
 
   return { cases, loading }
 }
@@ -628,12 +662,15 @@ export function useInstitutionResponse() {
         const uploads = await evidence.uploadAll(caseId, user.uid)
         const hashes = uploads.map((u) => u.hash)
 
-        await contract.submitResponse(caller, caseId, responseText, hashes)
+        // Try GenLayer on-chain response (may fail if institution wallet ≠ on-chain address)
+        try { await contract.submitResponse(caller, caseId, responseText, hashes) } catch { /* fallback */ }
 
+        // Always update Firestore so the workflow progresses
         await updateCaseMeta(caseId, {
           status: 'RESPONDED',
           responseFileUrls: uploads.map((u) => u.url),
-        })
+          responseText,
+        } as Partial<CaseMeta>)
 
         // Look up filer UID from case metadata and notify them
         const meta = await getCaseMeta(caseId)

@@ -73,7 +73,10 @@ function InstitutionCaseDetailContent({ caseId }: { caseId: string }) {
     )
   }
 
-  const canRespond = c.status === 'INSTITUTION_NOTIFIED' && user?.walletAddress === c.institution
+  // institutionId is the on-chain address; walletAddress is the auto-provisioned wallet
+  const canRespond = c.status === 'INSTITUTION_NOTIFIED' &&
+    user?.role === 'INSTITUTION' &&
+    (user?.institutionId === c.institution || user?.institutionId === meta?.institutionAddress)
   const activeJudgment = c.appeal?.outcome ?? c.judgment
 
   return (

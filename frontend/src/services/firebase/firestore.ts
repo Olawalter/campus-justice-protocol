@@ -42,6 +42,7 @@ export interface CaseMeta {
   matricNumber: string
   department: string
   notificationSent: boolean
+  responseText?: string
   appealGrounds?: string
   judgment?: {
     outcome: string
