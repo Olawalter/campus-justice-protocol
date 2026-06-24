@@ -220,8 +220,9 @@ function CaseDetailContent({ caseId }: { caseId: string }) {
 
             {/* AI Deliberation */}
             <AIDeliberationPanel
-              status={status}
-              consensus={activeJudgment?.validatorConsensus}
+              status={c.status}
+              judgment={meta?.appealJudgment ?? meta?.judgment}
+              isAppeal={!!meta?.appealJudgment}
             />
 
             {/* Judgment */}

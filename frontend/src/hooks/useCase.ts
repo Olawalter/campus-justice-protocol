@@ -470,13 +470,42 @@ export function useAdminCaseActions() {
       setLoading(true)
       setError(null)
       try {
-        try { await contract.evaluateCase(getCaller(), caseId) } catch { /* fallback */ }
+        // Immediately reflect deliberating state in Firestore so UI updates
         await updateCaseMeta(caseId, { status: 'DELIBERATING' })
-
-        // Notify both parties that AI evaluation has started
         const meta = await getCaseMeta(caseId)
-        const caseData = await contract.getCase(caseId)
-        const instUser = await getUserByWalletAddress(caseData.institution)
+
+        // ─── GenLayer on-chain AI evaluation ─────────────────────────────────────
+        // The contract's evaluate_case method calls gl.nondet.exec_prompt(prompt)
+        // inside a leader function (nondet) wrapped by gl.eq_principle.prompt_comparative.
+        // Each GenLayer validator independently runs the LLM and the eq_principle
+        // wrapper ensures validators reach consensus before the state write commits.
+        // This is the binding on-chain AI judgment — not a direct API call.
+        const result = await contract.evaluateCase(getCaller(), caseId)
+
+        if (!result.success) {
+          throw new Error(result.error ?? 'GenLayer validator evaluation failed. Please retry.')
+        }
+
+        // Read the consensus judgment back from the chain after validators finalize
+        const chainCase = await contract.getCase(caseId)
+        const judgment = chainCase.judgment
+
+        await updateCaseMeta(caseId, {
+          status: 'JUDGMENT_ISSUED',
+          ...(judgment && {
+            judgment: {
+              outcome: judgment.outcome,
+              reasoning: judgment.reasoning,
+              evidenceSummary: judgment.evidenceSummary,
+              confidenceScore: judgment.confidenceScore,
+              issuedAt: judgment.issuedAt || Date.now(),
+            },
+          }),
+        } as Partial<CaseMeta>)
+
+        const instUser = meta?.institutionAddress
+          ? await getUserByWalletAddress(meta.institutionAddress)
+          : null
 
         const recipients = [meta?.filerUid, instUser?.uid].filter(Boolean) as string[]
         await Promise.all(
@@ -485,11 +514,10 @@ export function useAdminCaseActions() {
               recipientUid: uid,
               type: 'JUDGMENT_ISSUED',
               caseId,
-              message: `AI deliberation has started for case ${caseId}. The validator network is now evaluating all evidence.`,
+              message: `AI judgment has been issued for case ${caseId} via GenLayer validator consensus.`,
             })
           )
         )
-        // Email student judgment is coming
         if (meta?.filerEmail) {
           sendCaseEmail({
             to: meta.filerEmail,
@@ -515,12 +543,38 @@ export function useAdminCaseActions() {
       setLoading(true)
       setError(null)
       try {
-        try { await contract.evaluateAppeal(getCaller(), caseId) } catch { /* fallback */ }
         await updateCaseMeta(caseId, { status: 'DELIBERATING' })
-
         const meta = await getCaseMeta(caseId)
-        const caseData = await contract.getCase(caseId)
-        const instUser = await getUserByWalletAddress(caseData.institution)
+
+        // ─── GenLayer on-chain appeal evaluation ──────────────────────────────────
+        // Same validator consensus pattern: gl.nondet.exec_prompt wrapped in
+        // gl.eq_principle.prompt_comparative — binding, on-chain, multi-validator.
+        const result = await contract.evaluateAppeal(getCaller(), caseId)
+
+        if (!result.success) {
+          throw new Error(result.error ?? 'GenLayer validator appeal evaluation failed. Please retry.')
+        }
+
+        // Read appeal judgment back from chain after validators finalize
+        const chainCase = await contract.getCase(caseId)
+        const appealJudgment = chainCase.appeal?.outcome ?? chainCase.judgment
+
+        await updateCaseMeta(caseId, {
+          status: 'FINAL_JUDGMENT',
+          ...(appealJudgment && {
+            appealJudgment: {
+              outcome: appealJudgment.outcome,
+              reasoning: appealJudgment.reasoning,
+              evidenceSummary: appealJudgment.evidenceSummary,
+              confidenceScore: appealJudgment.confidenceScore,
+              issuedAt: appealJudgment.issuedAt || Date.now(),
+            },
+          }),
+        } as Partial<CaseMeta>)
+
+        const instUser = meta?.institutionAddress
+          ? await getUserByWalletAddress(meta.institutionAddress)
+          : null
 
         const recipients = [meta?.filerUid, instUser?.uid].filter(Boolean) as string[]
         await Promise.all(
@@ -529,11 +583,10 @@ export function useAdminCaseActions() {
               recipientUid: uid,
               type: 'APPEAL_FILED',
               caseId,
-              message: `Appeal evaluation has started for case ${caseId}. The validator network is re-evaluating.`,
+              message: `Final appeal judgment has been issued for case ${caseId}.`,
             })
           )
         )
-        // Final judgment email to student
         if (meta?.filerEmail) {
           sendCaseEmail({
             to: meta.filerEmail,

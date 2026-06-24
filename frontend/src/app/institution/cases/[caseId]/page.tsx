@@ -28,7 +28,7 @@ import { Badge } from '@/components/ui/badge'
 
 function InstitutionCaseDetailContent({ caseId }: { caseId: string }) {
   const { user } = useAuth()
-  const { case: c, loading, error, refresh } = useCaseDetail(caseId)
+  const { case: c, meta, loading, error, refresh } = useCaseDetail(caseId)
   const { submitResponse, submitting, error: responseError, evidence } = useInstitutionResponse()
   const router = useRouter()
 
@@ -221,7 +221,8 @@ function InstitutionCaseDetailContent({ caseId }: { caseId: string }) {
             {/* AI Deliberation */}
             <AIDeliberationPanel
               status={c.status}
-              consensus={activeJudgment?.validatorConsensus}
+              judgment={meta?.appealJudgment ?? meta?.judgment}
+              isAppeal={!!meta?.appealJudgment}
             />
 
             {/* Judgment */}

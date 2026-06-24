@@ -25,7 +25,7 @@ import { AICaseAnalysis } from '@/components/cases/AICaseAnalysis'
 
 function AdminCaseDetailContent({ caseId }: { caseId: string }) {
   const { user } = useAuth()
-  const { case: c, loading, error, refresh } = useCaseDetail(caseId)
+  const { case: c, meta, loading, error, refresh } = useCaseDetail(caseId)
   const { verifyCase, notifyInstitution, triggerEvaluation, triggerAppealEvaluation, loading: actionLoading, error: actionError } = useAdminCaseActions()
   const router = useRouter()
   const [filerUid, setFilerUid] = useState('')
@@ -191,7 +191,8 @@ function AdminCaseDetailContent({ caseId }: { caseId: string }) {
             {/* AI Deliberation */}
             <AIDeliberationPanel
               status={c.status}
-              consensus={activeJudgment?.validatorConsensus}
+              judgment={meta?.appealJudgment ?? meta?.judgment}
+              isAppeal={!!meta?.appealJudgment}
             />
 
             {/* Judgment */}

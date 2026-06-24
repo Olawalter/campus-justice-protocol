@@ -42,6 +42,21 @@ export interface CaseMeta {
   matricNumber: string
   department: string
   notificationSent: boolean
+  appealGrounds?: string
+  judgment?: {
+    outcome: string
+    reasoning: string
+    evidenceSummary: string
+    confidenceScore: number
+    issuedAt: number
+  }
+  appealJudgment?: {
+    outcome: string
+    reasoning: string
+    evidenceSummary: string
+    confidenceScore: number
+    issuedAt: number
+  }
 }
 
 export async function saveCaseMeta(meta: CaseMeta): Promise<void> {
