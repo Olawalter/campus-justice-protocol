@@ -108,7 +108,6 @@ function formatType(t: string) {
 export function buildEmail(type: EmailType, data: CaseEmailData): { subject: string; html: string } {
   const institutionCaseUrl = `${BASE_URL}/institution/cases/${data.caseId}`
   const studentCaseUrl = `${BASE_URL}/student/cases/${data.caseId}`
-  const adminCaseUrl = `${BASE_URL}/admin/cases/${data.caseId}`
 
   switch (type) {
     case 'CASE_FILED_INSTITUTION': {

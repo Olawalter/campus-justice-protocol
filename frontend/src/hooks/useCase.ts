@@ -14,7 +14,6 @@ import {
   getAdminUids,
   getUserByWalletAddress,
   getUserByInstitutionId,
-  getUserEmail,
   getCaseMeta,
   getCasesByFiler,
   getCasesByInstitution,
