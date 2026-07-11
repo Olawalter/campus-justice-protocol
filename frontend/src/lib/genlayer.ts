@@ -34,11 +34,7 @@ export async function readCase(caseId: string): Promise<Case | null> {
 export async function readCasesByFiler(filer: string): Promise<Case[]> {
   const all = await readRecentCases(200)
   const target = filer.toLowerCase()
-  console.log('[CJP] readCasesByFiler: total cases on chain =', all.length, '| looking for filer =', target)
-  if (all.length > 0) console.log('[CJP] filers on chain:', all.map(c => c.filer))
-  const filtered = all.filter(c => c.filer.toLowerCase() === target)
-  console.log('[CJP] matched cases:', filtered.length)
-  return filtered
+  return all.filter(c => c.filer.toLowerCase() === target)
 }
 
 export async function readRecentCases(limit = 20): Promise<Case[]> {
