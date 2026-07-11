@@ -1,0 +1,267 @@
+{
+  "contractAddress": "0x840A8Fc23404F48983413c7C2c27e077FF360321",
+  "network": "studionet",
+  "deployedAt": "2026-06-20T09:38:45.535Z",
+  "admin": "0x28E730bddDB22765452461579D299a7ADd395392",
+  "methods": {
+    "write": [
+      {
+        "name": "register_institution",
+        "args": [
+          "institution_address: str",
+          "institution_name: str",
+          "domain: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "verify_institution",
+        "args": [
+          "institution_address: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "register_student",
+        "args": [
+          "student_address: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "set_admin",
+        "args": [
+          "new_admin: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "verify_case",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "notify_institution",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN"
+      },
+      {
+        "name": "create_case",
+        "args": [
+          "institution_address: str",
+          "dispute_type: str",
+          "description: str",
+          "evidence_hashes: str (JSON-encoded list)",
+          "matric_number: str",
+          "department: str"
+        ],
+        "returns": "str (case_id)",
+        "role": "STUDENT"
+      },
+      {
+        "name": "add_student_evidence",
+        "args": [
+          "case_id: str",
+          "new_hashes: str (JSON-encoded list)"
+        ],
+        "returns": "None",
+        "role": "STUDENT"
+      },
+      {
+        "name": "file_appeal",
+        "args": [
+          "case_id: str",
+          "grounds: str"
+        ],
+        "returns": "None",
+        "role": "STUDENT | INSTITUTION"
+      },
+      {
+        "name": "submit_response",
+        "args": [
+          "case_id: str",
+          "response_text: str",
+          "response_evidence_hashes: str (JSON-encoded list)"
+        ],
+        "returns": "None",
+        "role": "INSTITUTION"
+      },
+      {
+        "name": "evaluate_case",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN | case party",
+        "nondeterministic": true
+      },
+      {
+        "name": "evaluate_appeal",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN | case party",
+        "nondeterministic": true
+      },
+      {
+        "name": "close_case",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "None",
+        "role": "ADMIN | case party"
+      }
+    ],
+    "view": [
+      {
+        "name": "get_case",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "str (JSON)"
+      },
+      {
+        "name": "get_cases_by_student",
+        "args": [
+          "student_address: str"
+        ],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_cases_by_institution",
+        "args": [
+          "institution_address: str"
+        ],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_cases_by_status",
+        "args": [
+          "status: str"
+        ],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_institution_profile",
+        "args": [
+          "institution_address: str"
+        ],
+        "returns": "str (JSON)"
+      },
+      {
+        "name": "get_all_institutions",
+        "args": [],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_precedents",
+        "args": [
+          "dispute_type: str",
+          "limit: int"
+        ],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_all_precedents",
+        "args": [
+          "limit: int"
+        ],
+        "returns": "str (JSON array)"
+      },
+      {
+        "name": "get_transparency_stats",
+        "args": [],
+        "returns": "str (JSON)"
+      },
+      {
+        "name": "get_role",
+        "args": [
+          "address: str"
+        ],
+        "returns": "str"
+      },
+      {
+        "name": "is_institution_verified",
+        "args": [
+          "institution_address: str"
+        ],
+        "returns": "bool"
+      },
+      {
+        "name": "get_case_judgment",
+        "args": [
+          "case_id: str"
+        ],
+        "returns": "str (JSON)"
+      },
+      {
+        "name": "verify_evidence_hash",
+        "args": [
+          "case_id: str",
+          "hash_to_verify: str"
+        ],
+        "returns": "bool"
+      },
+      {
+        "name": "get_institution_leaderboard",
+        "args": [],
+        "returns": "str (JSON array)"
+      }
+    ]
+  },
+  "state": {
+    "roles": "TreeMap[str, str]  — address → role (ADMIN|STUDENT|INSTITUTION)",
+    "cases": "TreeMap[str, str]  — case_id → JSON-serialised case dict",
+    "institutions": "TreeMap[str, str]  — address → JSON-serialised institution dict",
+    "case_counter": "u256",
+    "precedents": "DynArray[str]      — list of high-confidence case_ids",
+    "admin": "str                — current admin address"
+  },
+  "notes": {
+    "evidence_hashes": "All hash lists are passed as JSON strings (json.dumps([...])) — the contract calls json.loads internally.",
+    "view_returns": "All view methods that return dicts or lists return JSON strings; frontend calls JSON.parse on the result.",
+    "sender": "gl.message.sender_address is used for all caller identity checks."
+  },
+  "disputeTypes": [
+    "GPA_MISCALCULATION",
+    "DEGREE_CLASSIFICATION",
+    "MISSING_GRADE",
+    "TRANSCRIPT_DISPUTE",
+    "SCHOLARSHIP_DISPUTE",
+    "WRONGFUL_SUSPENSION",
+    "EXPULSION_APPEAL",
+    "FEE_DISPUTE",
+    "HOSTEL_ALLOCATION",
+    "THESIS_GRADING",
+    "SEXUAL_HARASSMENT",
+    "OTHER"
+  ],
+  "outcomes": [
+    "UPHELD",
+    "REJECTED",
+    "FURTHER_REVIEW",
+    "SETTLEMENT_RECOMMENDED"
+  ],
+  "caseStatuses": [
+    "SUBMITTED",
+    "VERIFIED",
+    "INSTITUTION_NOTIFIED",
+    "RESPONDED",
+    "DELIBERATING",
+    "JUDGMENT_ISSUED",
+    "APPEALED",
+    "FINAL_JUDGMENT",
+    "CLOSED"
+  ]
+}
