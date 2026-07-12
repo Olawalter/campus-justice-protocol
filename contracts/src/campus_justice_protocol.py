@@ -70,21 +70,6 @@ class CampusJusticeProtocol(gl.Contract):
             )
         return "\n".join(summaries) if summaries else "No prior precedents for this case type."
 
-    def _fetch_url_evidence(self, refs: list) -> str:
-        """Fetch URL-based evidence live. Called inside a nondet block."""
-        parts = []
-        for ref in refs:
-            if ref.startswith("http://") or ref.startswith("https://"):
-                try:
-                    resp = gl.nondet.web.get(ref)
-                    content = resp.body.decode("utf-8", errors="replace")[:3000]
-                    parts.append(f"[LIVE URL EVIDENCE: {ref}]\n{content}")
-                except Exception as e:
-                    parts.append(f"[URL EVIDENCE — fetch failed: {ref}] ({str(e)[:80]})")
-            else:
-                parts.append(f"- {ref}")
-        return "\n\n".join(parts) if parts else "None provided."
-
     def _run_judgment(self, case: dict, is_appeal: bool = False) -> dict:
         case_type = case["case_type"]
         title = case["title"]
@@ -150,8 +135,20 @@ class CampusJusticeProtocol(gl.Contract):
         )
 
         def nondet() -> str:
-            # Each validator independently fetches URL evidence from the live web
-            evidence_block = self._fetch_url_evidence(evidence_refs)
+            # Each validator independently fetches URL evidence from the live web.
+            # Must NOT call self.* here — storage access is forbidden in nondet blocks.
+            parts = []
+            for ref in evidence_refs:
+                if ref.startswith("http://") or ref.startswith("https://"):
+                    try:
+                        resp = gl.nondet.web.get(ref)
+                        content = resp.body.decode("utf-8", errors="replace")[:3000]
+                        parts.append(f"[LIVE URL EVIDENCE: {ref}]\n{content}")
+                    except Exception as e:
+                        parts.append(f"[URL EVIDENCE — fetch failed: {ref}] ({str(e)[:80]})")
+                else:
+                    parts.append(f"- {ref}")
+            evidence_block = "\n\n".join(parts) if parts else "None provided."
             prompt = prompt_header + evidence_block + prompt_footer
 
             raw = gl.nondet.exec_prompt(prompt)
