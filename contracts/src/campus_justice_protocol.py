@@ -70,6 +70,21 @@ class CampusJusticeProtocol(gl.Contract):
             )
         return "\n".join(summaries) if summaries else "No prior precedents for this case type."
 
+    def _fetch_url_evidence(self, refs: list) -> str:
+        """Fetch URL-based evidence live. Called inside a nondet block."""
+        parts = []
+        for ref in refs:
+            if ref.startswith("http://") or ref.startswith("https://"):
+                try:
+                    resp = gl.nondet.web.get(ref)
+                    content = resp.body.decode("utf-8", errors="replace")[:3000]
+                    parts.append(f"[LIVE URL EVIDENCE: {ref}]\n{content}")
+                except Exception as e:
+                    parts.append(f"[URL EVIDENCE — fetch failed: {ref}] ({str(e)[:80]})")
+            else:
+                parts.append(f"- {ref}")
+        return "\n\n".join(parts) if parts else "None provided."
+
     def _run_judgment(self, case: dict, is_appeal: bool = False) -> dict:
         case_type = case["case_type"]
         title = case["title"]
@@ -104,16 +119,20 @@ class CampusJusticeProtocol(gl.Contract):
                 "4. How does this compare to precedents?\n\n"
             )
 
-        prompt = (
+        # Prompt template — evidence section injected dynamically inside nondet
+        # so each validator fetches URL evidence independently (GenLayer web access)
+        prompt_header = (
             f"You are a {role} for the Campus Justice Protocol — "
             "a decentralized AI arbitration system for university disputes.\n\n"
             f"CASE TYPE: {case_type.replace('_', ' ').title()}\n"
             f"TITLE: {title}\n\n"
             f"STUDENT COMPLAINT:\n{description}\n\n"
             f"INSTITUTION RESPONSE:\n{response_text if response_text else 'No response submitted.'}\n\n"
-            f"EVIDENCE REFERENCES ({len(evidence_refs)} items):\n"
-            + ("\n".join(f"- {r}" for r in evidence_refs) if evidence_refs else "None provided.") + "\n\n"
-            f"SIMILAR PRECEDENTS:\n{precedents}\n\n"
+            f"EVIDENCE ({len(evidence_refs)} item(s) — URLs fetched live by each validator):\n"
+        )
+
+        prompt_footer = (
+            f"\nSIMILAR PRECEDENTS:\n{precedents}\n\n"
             + context_block +
             "Respond ONLY with a JSON object — no markdown, no extra text:\n"
             '{\n'
@@ -131,11 +150,13 @@ class CampusJusticeProtocol(gl.Contract):
         )
 
         def nondet() -> str:
+            # Each validator independently fetches URL evidence from the live web
+            evidence_block = self._fetch_url_evidence(evidence_refs)
+            prompt = prompt_header + evidence_block + prompt_footer
+
             raw = gl.nondet.exec_prompt(prompt)
             cleaned = raw.strip()
-            # Strip markdown code fences using plain string ops
             cleaned = cleaned.replace("```json", "").replace("```", "")
-            # Extract JSON object by brace boundaries
             start = cleaned.find("{")
             end = cleaned.rfind("}") + 1
             if start >= 0 and end > start:

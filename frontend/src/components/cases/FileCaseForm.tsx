@@ -193,18 +193,47 @@ export function FileCaseForm() {
         {/* Step 2: Evidence + submit */}
         {step === 2 && (
           <div className="space-y-4 fade-up">
-            <h2 className="text-base font-semibold">Evidence References</h2>
+            <h2 className="text-base font-semibold">Evidence</h2>
             <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
-              Add links, document IDs, or IPFS hashes for supporting evidence. One per line.
+              Add one item per line. Paste public URLs — they will be fetched live by each GenLayer validator at judgment time.
             </p>
+
+            {/* URL fetch explainer */}
+            <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+              <span style={{ fontSize: 18, lineHeight: 1.4 }}>🌐</span>
+              <div className="text-xs space-y-0.5">
+                <p className="font-medium" style={{ color: '#4ade80' }}>Live web fetching — powered by GenLayer</p>
+                <p style={{ color: 'var(--color-muted)' }}>
+                  Any <span className="font-mono">https://</span> URL is fetched directly by each validator node during judgment. The content is read into the AI prompt as real evidence — not just a reference.
+                </p>
+              </div>
+            </div>
+
             <textarea
               className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none font-mono"
               style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-              rows={4}
-              placeholder={'https://drive.google.com/…\nipfs://Qm…\nDocID-1234'}
+              rows={5}
+              placeholder={'https://docs.google.com/document/d/…  ← fetched live\nhttps://pastebin.com/raw/…           ← fetched live\nExam script ref: EX-2026-CSC401-047   ← text reference'}
               value={form.evidenceRefs}
               onChange={e => set('evidenceRefs', e.target.value)}
             />
+
+            {/* Show parsed refs */}
+            {form.evidenceRefs.trim() && (
+              <div className="space-y-1">
+                {form.evidenceRefs.split('\n').map(s => s.trim()).filter(Boolean).map((ref, i) => {
+                  const isUrl = ref.startsWith('http://') || ref.startsWith('https://')
+                  return (
+                    <div key={i} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-mono"
+                      style={{ background: isUrl ? 'rgba(74,222,128,0.06)' : 'rgba(139,92,246,0.06)', border: `1px solid ${isUrl ? 'rgba(74,222,128,0.15)' : 'var(--color-border)'}` }}>
+                      <span style={{ color: isUrl ? '#4ade80' : 'var(--color-muted)', flexShrink: 0 }}>{isUrl ? '🌐' : '📄'}</span>
+                      <span className="truncate" style={{ color: isUrl ? '#4ade80' : 'var(--color-muted)' }}>{ref}</span>
+                      <span className="ml-auto shrink-0" style={{ color: 'var(--color-muted)', fontFamily: 'sans-serif' }}>{isUrl ? 'live fetch' : 'text ref'}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             <div
               className="p-4 rounded-xl text-xs space-y-1"
@@ -212,8 +241,7 @@ export function FileCaseForm() {
             >
               <p className="font-medium" style={{ color: 'var(--color-primary-light)' }}>GenLayer Intelligent Contract</p>
               <p style={{ color: 'var(--color-muted)' }}>
-                Your case will be evaluated by multiple AI validators running independently. They must reach consensus
-                (Optimistic Democracy) before a verdict is issued. This is immutable and transparent.
+                Your case will be evaluated by multiple AI validators running independently. Each validator fetches your URL evidence, runs the AI model, and votes. They must reach consensus (Optimistic Democracy) before a verdict is issued.
               </p>
             </div>
 
