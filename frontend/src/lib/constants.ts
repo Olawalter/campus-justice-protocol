@@ -2,7 +2,7 @@ import type { CaseType } from './types'
 
 export const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS ?? '') as `0x${string}`
 export const RPC_URL = process.env.NEXT_PUBLIC_GENLAYER_RPC_URL ?? 'https://studio.genlayer.com/api'
-export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID ?? 61999)
+export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID || 61999)
 
 export const CASE_TYPE_META: Record<CaseType, { label: string; icon: string; description: string }> = {
   ACADEMIC_APPEAL: {
