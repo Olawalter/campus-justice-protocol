@@ -157,6 +157,19 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       {c.judgment && <JudgmentPanel judgment={c.judgment} />}
       {c.final_judgment && <JudgmentPanel judgment={c.final_judgment} isAppeal />}
 
+      {/* Institution response prompt — visible even when disconnected so respondents know to connect */}
+      {c.status === 'SUBMITTED' && !c.response_text && !connected && (
+        <div className="gl-card p-6 space-y-2">
+          <p className="text-xs font-semibold" style={{ color: 'var(--color-muted)' }}>Institution Response</p>
+          <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
+            Connect your institution wallet to submit a response to this case.
+          </p>
+          <p className="text-xs" style={{ color: 'var(--color-muted)' }}>
+            Switch to your institution wallet in MetaMask, then click <strong>Connect Wallet</strong> in the top-right corner.
+          </p>
+        </div>
+      )}
+
       {/* Actions */}
       {connected && (
         <div className="gl-card p-6 space-y-4">
