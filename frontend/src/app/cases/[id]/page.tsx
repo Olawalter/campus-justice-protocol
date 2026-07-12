@@ -157,133 +157,255 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       {c.judgment && <JudgmentPanel judgment={c.judgment} />}
       {c.final_judgment && <JudgmentPanel judgment={c.final_judgment} isAppeal />}
 
-      {/* Institution response prompt — visible even when disconnected so respondents know to connect */}
-      {c.status === 'SUBMITTED' && !c.response_text && !connected && (
-        <div className="gl-card p-6 space-y-2">
-          <p className="text-xs font-semibold" style={{ color: 'var(--color-muted)' }}>Institution Response</p>
-          <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
-            Connect your institution wallet to submit a response to this case.
-          </p>
-          <p className="text-xs" style={{ color: 'var(--color-muted)' }}>
-            Switch to your institution wallet in MetaMask, then click <strong>Connect Wallet</strong> in the top-right corner.
-          </p>
+      {/* ── Action Room ───────────────────────────────────────────────────────── */}
+
+      {/* Process timeline — shown for active cases */}
+      {!['DECIDED', 'FINAL'].includes(c.status) && !awaitingJudgment && (
+        <div className="gl-card p-6">
+          <p className="text-xs font-semibold mb-4" style={{ color: 'var(--color-muted)' }}>Case Progress</p>
+          <div className="flex items-start gap-0">
+            {[
+              { key: 'SUBMITTED', label: 'Case Filed', done: true },
+              { key: 'RESPONDED', label: 'Institution Responds', done: ['RESPONDED', 'DELIBERATING'].includes(c.status) },
+              { key: 'DELIBERATING', label: 'AI Judgment', done: false },
+              { key: 'DECIDED', label: 'Decision', done: false },
+            ].map((step, i, arr) => (
+              <div key={step.key} className="flex-1 flex flex-col items-center">
+                <div className="flex items-center w-full">
+                  {i > 0 && <div className="flex-1 h-px" style={{ background: step.done ? 'var(--color-primary)' : 'var(--color-border)' }} />}
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{
+                      background: step.done ? 'var(--color-primary)' : 'rgba(139,92,246,0.08)',
+                      color: step.done ? '#fff' : 'var(--color-muted)',
+                      border: step.done ? 'none' : '1px solid var(--color-border)',
+                    }}>
+                    {step.done ? '✓' : i + 1}
+                  </div>
+                  {i < arr.length - 1 && <div className="flex-1 h-px" style={{ background: 'var(--color-border)' }} />}
+                </div>
+                <p className="text-xs mt-1.5 text-center leading-tight" style={{ color: step.done ? 'var(--color-primary-light)' : 'var(--color-muted)' }}>
+                  {step.label}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Actions */}
-      {connected && (
-        <div className="gl-card p-6 space-y-4">
-          <p className="text-xs font-semibold" style={{ color: 'var(--color-muted)' }}>Actions</p>
-
-          {actionError && (
-            <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
-              {actionError}
+      {/* Action Room — open for institution response */}
+      {c.status === 'SUBMITTED' && !c.response_text && (
+        <div className="gl-card overflow-hidden" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
+          {/* Header */}
+          <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'rgba(124,58,237,0.08)', borderBottom: '1px solid rgba(124,58,237,0.15)' }}>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block" style={{ boxShadow: '0 0 6px #4ade80' }} />
+              <p className="text-sm font-semibold" style={{ color: 'var(--color-primary-light)' }}>Action Room — Open for Institution Response</p>
             </div>
-          )}
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(74,222,128,0.12)', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)' }}>
+              Awaiting Response
+            </span>
+          </div>
 
-          {/* Deliberating state — validators are running LLM consensus */}
-          {awaitingJudgment && (
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-4 rounded-lg" style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid var(--color-border)' }}>
-                <div className="w-5 h-5 border-2 border-purple-700 border-t-purple-300 rounded-full spin shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium" style={{ color: 'var(--color-primary-light)' }}>Validators deliberating…</p>
-                  <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                    GenLayer validators are independently running the AI model and reaching consensus (Optimistic Democracy). This typically takes 3–15 minutes depending on network load.
-                  </p>
-                  <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                    This page checks every 15 seconds. You can also navigate away and return later — the judgment will be here once finalized.
+          <div className="p-6 space-y-4">
+            <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
+              This case is now open. The institution should review the complaint and submit an official response before AI judgment is requested.
+            </p>
+
+            {/* Not connected */}
+            {!connected && (
+              <div className="p-4 rounded-lg space-y-1" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)' }}>
+                <p className="text-sm font-medium">Institution: connect your wallet to respond</p>
+                <p className="text-xs" style={{ color: 'var(--color-muted)' }}>
+                  Switch to your institution wallet in MetaMask, then click <strong>Connect Wallet</strong> in the top-right corner.
+                </p>
+              </div>
+            )}
+
+            {/* Connected as institution (not filer) */}
+            {connected && !isFiler && (
+              <div className="space-y-3">
+                <p className="text-xs font-medium" style={{ color: 'var(--color-muted)' }}>Submit official institution response</p>
+                <textarea
+                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
+                  style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  rows={6}
+                  placeholder="Address the complaint directly. Reference relevant policies, records, or procedures. Minimum 30 characters."
+                  value={responseText}
+                  onChange={e => setResponseText(e.target.value)}
+                />
+                {actionError && (
+                  <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    {actionError}
+                  </div>
+                )}
+                <button
+                  onClick={() => doAction('response', () => submitResponse(c.case_id, responseText))}
+                  disabled={txPending || responseText.trim().length < 30}
+                  className="px-5 py-2.5 rounded-lg text-sm font-medium"
+                  style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || responseText.trim().length < 30) ? 0.6 : 1 }}
+                >
+                  {activeAction === 'response' ? 'Submitting…' : 'Submit Response'}
+                </button>
+                <p className="text-xs" style={{ color: 'var(--color-muted)' }}>{responseText.trim().length}/30 min characters</p>
+              </div>
+            )}
+
+            {/* Connected as filer — waiting for institution */}
+            {connected && isFiler && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-lg" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)' }}>
+                  <p className="text-sm font-medium mb-1">Waiting for institution response</p>
+                  <p className="text-xs" style={{ color: 'var(--color-muted)' }}>
+                    Share the case link with the institution so they can connect their wallet and submit a response. You can request AI judgment once they respond — or skip directly if no response is expected.
                   </p>
                 </div>
+                <button
+                  onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
+                  disabled={txPending}
+                  className="px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ background: 'rgba(124,58,237,0.15)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: txPending ? 0.6 : 1 }}
+                >
+                  {activeAction === 'judgment' && <span className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full spin inline-block mr-2" />}
+                  Skip to AI Judgment (no response yet)
+                </button>
               </div>
-              <button
-                onClick={async () => {
-                  const fresh = await readCase(id)
-                  if (fresh) {
-                    setCaseData(fresh)
-                    if (fresh.status === 'DECIDED' || fresh.status === 'FINAL') setAwaitingJudgment(false)
-                  }
-                }}
-                className="text-xs px-3 py-1.5 rounded-lg"
-                style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}
-              >
-                Check now
-              </button>
-            </div>
-          )}
-
-          {/* Submit response */}
-          {c.status === 'SUBMITTED' && !c.response_text && !isFiler && (
-            <div className="space-y-2">
-              <p className="text-xs" style={{ color: 'var(--color-muted)' }}>Submit your response to this case</p>
-              <textarea
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
-                style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                rows={4}
-                placeholder="Your response…"
-                value={responseText}
-                onChange={e => setResponseText(e.target.value)}
-              />
-              <button
-                onClick={() => doAction('response', () => submitResponse(c.case_id, responseText))}
-                disabled={txPending || !responseText}
-                className="px-4 py-2 rounded-lg text-sm font-medium"
-                style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || !responseText) ? 0.6 : 1 }}
-              >
-                {activeAction === 'response' ? 'Submitting…' : 'Submit Response'}
-              </button>
-            </div>
-          )}
-
-          {/* Request judgment */}
-          {(c.status === 'SUBMITTED' || c.status === 'RESPONDED') && isFiler && !awaitingJudgment && (
-            <button
-              onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
-              disabled={txPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-              style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
-            >
-              {activeAction === 'judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
-              Request AI Judgment
-            </button>
-          )}
-
-          {/* File appeal */}
-          {c.status === 'DECIDED' && isFiler && !c.appeal && (
-            <div className="space-y-2">
-              <p className="text-xs" style={{ color: 'var(--color-muted)' }}>Grounds for appeal</p>
-              <textarea
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
-                style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                rows={3}
-                placeholder="Explain why this judgment should be reconsidered…"
-                value={appealGrounds}
-                onChange={e => setAppealGrounds(e.target.value)}
-              />
-              <button
-                onClick={() => doAction('appeal', () => fileAppeal(c.case_id, appealGrounds))}
-                disabled={txPending || !appealGrounds}
-                className="px-4 py-2 rounded-lg text-sm font-medium"
-                style={{ background: 'rgba(124,58,237,0.2)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}
-              >
-                {activeAction === 'appeal' ? 'Filing…' : 'File Appeal'}
-              </button>
-            </div>
-          )}
-
-          {/* Request appeal judgment */}
-          {c.status === 'APPEALED' && isFiler && !awaitingJudgment && (
-            <button
-              onClick={() => doAction('appeal-judgment', () => requestAppealJudgment(c.case_id))}
-              disabled={txPending}
-              className="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-              style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
-            >
-              {activeAction === 'appeal-judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
-              Request Appeal Judgment
-            </button>
-          )}
+            )}
+          </div>
         </div>
+      )}
+
+      {/* Action Room — responded, ready for judgment */}
+      {c.status === 'RESPONDED' && !awaitingJudgment && (
+        <div className="gl-card overflow-hidden" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
+          <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'rgba(124,58,237,0.08)', borderBottom: '1px solid rgba(124,58,237,0.15)' }}>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-purple-400 inline-block" />
+              <p className="text-sm font-semibold" style={{ color: 'var(--color-primary-light)' }}>Action Room — Ready for AI Judgment</p>
+            </div>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(139,92,246,0.12)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}>
+              Both sides heard
+            </span>
+          </div>
+          <div className="p-6 space-y-4">
+            <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
+              The institution has submitted their response. The case is ready for AI arbitration. GenLayer validators will independently analyze both sides and reach consensus.
+            </p>
+            {actionError && (
+              <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
+                {actionError}
+              </div>
+            )}
+            {connected && isFiler && (
+              <button
+                onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
+                disabled={txPending}
+                className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
+                style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
+              >
+                {activeAction === 'judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
+                Request AI Judgment
+              </button>
+            )}
+            {!connected && (
+              <p className="text-xs" style={{ color: 'var(--color-muted)' }}>Connect as the case filer to request AI judgment.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Deliberating — validators running */}
+      {awaitingJudgment && (
+        <div className="gl-card p-6 space-y-3" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 border-2 border-purple-700 border-t-purple-300 rounded-full spin shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium" style={{ color: 'var(--color-primary-light)' }}>Validators deliberating…</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                GenLayer validators are independently running the AI model and reaching consensus (Optimistic Democracy). This typically takes 3–15 minutes.
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                This page checks every 15 seconds. You can navigate away and return — the judgment will be here once finalized.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              const fresh = await readCase(id)
+              if (fresh) {
+                setCaseData(fresh)
+                if (fresh.status === 'DECIDED' || fresh.status === 'FINAL') setAwaitingJudgment(false)
+              }
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}
+          >
+            Check now
+          </button>
+        </div>
+      )}
+
+      {/* Appeal room */}
+      {connected && (
+        <>
+          {c.status === 'DECIDED' && isFiler && !c.appeal && (
+            <div className="gl-card overflow-hidden" style={{ border: '1px solid rgba(124,58,237,0.2)' }}>
+              <div className="px-6 py-4" style={{ background: 'rgba(124,58,237,0.06)', borderBottom: '1px solid rgba(124,58,237,0.1)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-primary-light)' }}>Appeal Room</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-muted)' }}>Disagree with the judgment? File an appeal with your grounds.</p>
+              </div>
+              <div className="p-6 space-y-3">
+                {actionError && (
+                  <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    {actionError}
+                  </div>
+                )}
+                <textarea
+                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
+                  style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                  rows={4}
+                  placeholder="Explain why this judgment should be reconsidered. Reference specific facts, procedural errors, or overlooked evidence. Minimum 20 characters."
+                  value={appealGrounds}
+                  onChange={e => setAppealGrounds(e.target.value)}
+                />
+                <button
+                  onClick={() => doAction('appeal', () => fileAppeal(c.case_id, appealGrounds))}
+                  disabled={txPending || appealGrounds.trim().length < 20}
+                  className="px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ background: 'rgba(124,58,237,0.2)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: (txPending || appealGrounds.trim().length < 20) ? 0.6 : 1 }}
+                >
+                  {activeAction === 'appeal' ? 'Filing…' : 'File Appeal'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {c.status === 'APPEALED' && isFiler && !awaitingJudgment && (
+            <div className="gl-card overflow-hidden" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
+              <div className="px-6 py-4" style={{ background: 'rgba(124,58,237,0.08)', borderBottom: '1px solid rgba(124,58,237,0.15)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-primary-light)' }}>Appeal Room — Ready for Senior Review</p>
+              </div>
+              <div className="p-6 space-y-3">
+                <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
+                  Your appeal has been filed. Request a senior AI review — validators will re-examine the full case including your appeal grounds.
+                </p>
+                {actionError && (
+                  <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    {actionError}
+                  </div>
+                )}
+                <button
+                  onClick={() => doAction('appeal-judgment', () => requestAppealJudgment(c.case_id))}
+                  disabled={txPending}
+                  className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
+                  style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
+                >
+                  {activeAction === 'appeal-judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
+                  Request Appeal Judgment
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
