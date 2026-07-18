@@ -104,7 +104,7 @@ export default function Home() {
           <h3 className="text-base font-bold gradient-text">Built on GenLayer</h3>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--color-muted)' }}>
             Every case evaluation uses <code className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)' }}>gl.nondet.exec_prompt</code> for
-            non-deterministic LLM analysis and <code className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)' }}>gl.eq_principle.prompt_comparative</code> for
+            non-deterministic LLM analysis and <code className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)' }}>gl.eq_principle.prompt_non_comparative</code> for
             validator consensus — ensuring fair, reproducible decisions.
           </p>
         </div>

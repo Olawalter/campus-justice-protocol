@@ -38,7 +38,7 @@ export interface Case {
   case_type: CaseType
   title: string
   description: string
-  evidence_refs: string
+  evidence_refs: string[]
   matric_number: string
   department: string
   status: CaseStatus

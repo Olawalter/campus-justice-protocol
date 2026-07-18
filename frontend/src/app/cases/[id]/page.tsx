@@ -89,7 +89,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const c = caseData
   const meta = CASE_TYPE_META[c.case_type] ?? { label: c.case_type, icon: '📄' }
   const isFiler = address?.toLowerCase() === c.filer.toLowerCase()
-  const evidenceRefs: string[] = (() => { try { return JSON.parse(c.evidence_refs || '[]') } catch { return [] } })()
+  const evidenceRefs: string[] = Array.isArray(c.evidence_refs) ? c.evidence_refs : []
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12 space-y-6">
