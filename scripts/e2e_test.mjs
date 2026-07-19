@@ -2,7 +2,7 @@ import { createClient, createAccount } from 'genlayer-js'
 import { studionet } from 'genlayer-js/chains'
 import { TransactionStatus } from 'genlayer-js/types'
 
-const CONTRACT = '0x46F3A73A7e7Fb331aA1b430d2FCb7eFEBD852CAe'
+const CONTRACT = '0xD5d9875ef33c369A59e47c2a0348f0e18897436D'
 const RPC_URL  = 'https://studio.genlayer.com/api'
 
 const WALLET_A = {
