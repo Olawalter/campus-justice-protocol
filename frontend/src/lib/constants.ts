@@ -1,6 +1,8 @@
 import type { CaseType } from './types'
+import { getAddress } from 'viem'
 
-export const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS ?? '') as `0x${string}`
+const _raw = (process.env.NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS ?? '').trim()
+export const CONTRACT_ADDRESS = (_raw ? getAddress(_raw) : '0x0000000000000000000000000000000000000000') as `0x${string}`
 export const RPC_URL = process.env.NEXT_PUBLIC_GENLAYER_RPC_URL ?? 'https://studio.genlayer.com/api'
 export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID || 61999)
 
