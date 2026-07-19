@@ -158,7 +158,10 @@ class CampusJusticeProtocol(gl.Contract):
             end = cleaned.rfind("}") + 1
             if start >= 0 and end > start:
                 cleaned = cleaned[start:end]
-            parsed = json.loads(cleaned.strip())
+            try:
+                parsed = json.loads(cleaned.strip())
+            except Exception:
+                parsed = {}
             outcome = str(parsed.get("outcome", "INCONCLUSIVE")).upper()
             if outcome not in ("UPHELD", "DISMISSED", "PARTIAL", "INCONCLUSIVE"):
                 outcome = "INCONCLUSIVE"
@@ -166,9 +169,9 @@ class CampusJusticeProtocol(gl.Contract):
             confidence = round(max(0.0, min(1.0, confidence)), 4)
             return json.dumps({
                 "outcome": outcome,
-                "reasoning": str(parsed.get("reasoning", "")),
+                "reasoning": str(parsed.get("reasoning", "Validator produced no parseable reasoning.")),
                 "key_findings": list(parsed.get("key_findings", [])),
-                "recommendation": str(parsed.get("recommendation", "")),
+                "recommendation": str(parsed.get("recommendation", "Please request judgment again.")),
                 "confidence": confidence,
             }, sort_keys=True)
 
@@ -177,6 +180,14 @@ class CampusJusticeProtocol(gl.Contract):
             task="Analyze a university dispute and return a JSON judgment with outcome, reasoning, key_findings, recommendation, and confidence.",
             criteria="Result must be a valid JSON object with keys: outcome (one of UPHELD/DISMISSED/PARTIAL/INCONCLUSIVE), reasoning (string), key_findings (list of strings), recommendation (string), confidence (float 0-1).",
         )
+        if not result_str or not result_str.strip():
+            return {
+                "outcome": "INCONCLUSIVE",
+                "reasoning": "Validators could not produce a parseable judgment. The LLM response was empty or malformed. Please request judgment again.",
+                "key_findings": [],
+                "recommendation": "Request judgment again to retry validator consensus.",
+                "confidence": 0.0,
+            }
         return json.loads(result_str)
 
     # ── Write methods ──────────────────────────────────────────────────────────
