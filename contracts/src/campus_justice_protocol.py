@@ -203,7 +203,22 @@ class CampusJusticeProtocol(gl.Contract):
                 "recommendation": "Request judgment again to retry validator consensus.",
                 "confidence": 0.0,
             }
-        return json.loads(result_str)
+        # Strip markdown code fences if LLM wrapped output in ```json ... ```
+        clean = result_str.strip()
+        if clean.startswith("```"):
+            lines = clean.splitlines()
+            start = 1  # skip ```json or ``` line
+            end = len(lines) - 1 if lines[-1].strip() == "```" else len(lines)
+            clean = "\n".join(lines[start:end]).strip()
+        if not clean:
+            return {
+                "outcome": "INCONCLUSIVE",
+                "reasoning": "Validator output was only markdown fences with no JSON content.",
+                "key_findings": [],
+                "recommendation": "Request judgment again to retry validator consensus.",
+                "confidence": 0.0,
+            }
+        return json.loads(clean)
 
     # ── Write methods ──────────────────────────────────────────────────────────
 
