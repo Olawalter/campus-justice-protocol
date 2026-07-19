@@ -8,6 +8,22 @@
 
 ---
 
+## Submission Notes
+
+Campus Justice Protocol is a decentralized arbitration system for university disputes. Students file a case, submit evidence (including live URLs to policy documents), and the institution responds on-chain using their wallet. When either party requests judgment, GenLayer's 5 validators each independently fetch the linked policy document and evidence URLs from the live web, run an AI analysis of the full case, and reach consensus via Optimistic Democracy. The final judgment — outcome, reasoning, key findings, confidence score, and recommendation — is written permanently to the contract. Students can then appeal, triggering a second validator consensus round that re-evaluates with the appeal grounds.
+
+**The trust problem it solves:** University dispute processes are slow, opaque, and fully controlled by the institution being disputed. There is no audit trail, no neutral arbitrator, and no way for students to verify that a decision was fairly reached. CJP replaces that with a public, on-chain record where every judgment is verifiable, every validator vote is visible, and no single party controls the outcome.
+
+**How to use it:**
+1. Go to [campusjp.vercel.app](https://campusjp.vercel.app) and connect a MetaMask wallet on GenLayer Studionet
+2. Click **File a Case** — fill in case type, description, evidence refs, and optionally a policy document URL
+3. The institution connects a separate wallet and submits their official response
+4. Either party clicks **Request AI Judgment** — validators fetch live evidence and reach consensus (5–15 min)
+5. The judgment appears on the case page with full reasoning, findings, and per-validator vote breakdown
+6. The student can file an appeal; a second consensus round produces the final judgment
+
+---
+
 ## What is this?
 
 Universities handle hundreds of disputes every year — grade appeals, exam misconduct, scholarship decisions, hostel allocations — and most go through slow, opaque, human-only processes with no audit trail.
@@ -33,19 +49,21 @@ Campus Justice Protocol puts the arbitration on-chain. When a student files a ca
 ## How It Works
 
 ```
-Student files case  →  Evidence submitted (text refs + live URLs)
+Student files case  →  Evidence submitted (text refs + live URLs + policy document URL)
         ↓
 Action Room opens — institution connects wallet and responds
         ↓
 Student requests AI judgment
         ↓
-GenLayer validators independently fetch URL evidence from the live web
+GenLayer validators independently fetch policy URL + evidence URLs from the live web
         ↓
-Each validator runs the full AI analysis with real evidence injected
+Each validator runs the full AI analysis with real fetched content injected into the prompt
         ↓
 Optimistic Democracy + Equivalence Principle → consensus reached
         ↓
-Judgment written to contract: outcome, reasoning, findings, recommendation
+Judgment written to contract: outcome, reasoning, findings, recommendation, confidence
+        ↓
+Validator Consensus Panel shows per-validator votes, rounds, agreement rate
         ↓
 Student can file appeal → senior arbitrator re-evaluates with appeal grounds
         ↓
@@ -58,7 +76,7 @@ Each judgment contains:
 - **Key Findings** — 3+ concrete findings from the case
 - **Recommendation** — Specific actionable next step
 - **Confidence Score** — 0–1 float based on evidence strength
-- **Validator Consensus** — Reached via GenLayer Optimistic Democracy (5 validators)
+- **Validator Consensus** — Per-validator votes (agree/disagree/idle/timeout), rounds, leader, agreement rate
 
 ---
 
@@ -69,15 +87,16 @@ Each judgment contains:
 | `gl.Contract` | Base class for the entire intelligent contract |
 | `gl.public.write` | `file_case`, `submit_response`, `request_judgment`, `file_appeal`, `request_appeal_judgment` |
 | `gl.public.view` | `get_case`, `get_recent_cases`, `get_case_count`, `get_stats` |
-| `gl.message.sender_address` | Identifies filer and restricts appeal to original filer |
-| `gl.nondet.exec_prompt` | LLM call inside each validator's sandbox |
-| `gl.nondet.web.get` | Live URL evidence fetching — each validator fetches independently |
-| `gl.eq_principle.prompt_non_comparative` | Consensus over non-deterministic LLM + web output |
-| `TreeMap[str, str]` | On-chain case storage and filer index |
-| `DynArray[str]` | Ordered case ID list for iteration and pagination |
-| `u256` | Case counter |
-| `genlayer-js` SDK | `createClient`, `readContract`, `writeContract`, `waitForTransactionReceipt` |
-| EIP-3326 / EIP-3085 | `wallet_switchEthereumChain` / `wallet_addEthereumChain` for network management |
+| `gl.message.sender_address` | Identifies filer, records respondent, restricts appeal to original filer |
+| `gl.nondet` block | Wraps all AI + web work — each of 5 validators runs independently in its own sandbox |
+| `gl.nondet.web.get` | Live URL fetching inside nondet — each validator fetches the institution policy document and every `https://` evidence ref independently before inference |
+| `gl.nondet.exec_prompt` | LLM call inside each validator's sandbox — runs full case analysis with fetched evidence injected |
+| `gl.eq_principle.prompt_non_comparative` | Consensus over non-deterministic LLM + web output — validates structure against task/criteria rather than requiring byte-identical results |
+| `TreeMap[str, str]` | On-chain case storage (`cases`) and filer index (`cases_by_filer`) |
+| `DynArray[str]` | Ordered case ID list for pagination in `get_recent_cases` |
+| `u256` | Case counter — generates sequential IDs like `CJP-000001` |
+| `genlayer-js` SDK | `createClient`, `createAccount`, `readContract`, `writeContract`, `waitForTransactionReceipt` |
+| EIP-3326 / EIP-3085 | `wallet_switchEthereumChain` / `wallet_addEthereumChain` for automatic network management |
 
 ---
 
@@ -122,7 +141,11 @@ campus-justice-protocol/
 │   │   │   ├── my-cases/                # Wallet-linked case dashboard
 │   │   │   └── file/                    # 3-step case filing form
 │   │   ├── components/
-│   │   │   ├── cases/                   # CaseCard, FileCaseForm, JudgmentPanel
+│   │   │   ├── cases/
+│   │   │   │   ├── CaseCard.tsx         # Case summary card for feeds
+│   │   │   │   ├── FileCaseForm.tsx     # 3-step filing form with policy URL input
+│   │   │   │   ├── JudgmentPanel.tsx    # Renders judgment outcome, reasoning, findings
+│   │   │   │   └── ValidatorConsensusPanel.tsx  # Per-validator vote breakdown panel
 │   │   │   └── ui/                      # StatusBadge, Navbar
 │   │   ├── contexts/
 │   │   │   └── WalletContext.tsx        # Wallet state + all write operations
@@ -132,6 +155,8 @@ campus-justice-protocol/
 │   │       └── types.ts                 # Case, Judgment, Appeal TypeScript types
 │   ├── .env.local                       # Environment variables (not committed)
 │   └── package.json
+├── scripts/
+│   └── e2e_test.mjs                     # End-to-end test script (genlayer-js, real wallets)
 └── README.md
 ```
 
@@ -174,6 +199,15 @@ npm run dev
 
 Open the app, click **Connect Wallet** — MetaMask auto-adds GenLayer Studionet if not already configured.
 
+### 5. Run the end-to-end test
+
+```bash
+cd frontend
+node --input-type=module < ../scripts/e2e_test.mjs
+```
+
+This files a real case, submits a response, triggers AI judgment, files an appeal, and triggers the appeal judgment — all against the live contract using funded wallets. Expect 15–30 minutes for both validator rounds.
+
 ---
 
 ## Deploying the Contract
@@ -202,9 +236,9 @@ class CampusJusticeProtocol(gl.Contract):
 
 | Method | Description |
 |---|---|
-| `file_case(case_type, title, description, evidence_refs, matric_number, department, filed_at)` | File a new dispute case |
+| `file_case(case_type, title, description, evidence_refs, matric_number, department, filed_at, policy_url)` | File a new dispute case with optional institution policy document URL |
 | `submit_response(case_id, response_text)` | Institution submits official response |
-| `request_judgment(case_id)` | Trigger AI judgment — validators fetch URL evidence + run LLM |
+| `request_judgment(case_id)` | Trigger AI judgment — validators fetch policy URL + evidence and run LLM |
 | `file_appeal(case_id, grounds)` | Filer appeals a DECIDED case |
 | `request_appeal_judgment(case_id)` | Trigger senior AI re-evaluation of appeal |
 
@@ -221,11 +255,11 @@ class CampusJusticeProtocol(gl.Contract):
 ### Case Status Flow
 
 ```
-SUBMITTED → RESPONDED? → [request_judgment] → DELIBERATING → DECIDED
-                                                                  ↓
-                                                           [file_appeal]
-                                                                  ↓
-                                                    APPEALED → DELIBERATING → FINAL
+SUBMITTED → RESPONDED → [request_judgment] → DELIBERATING → DECIDED
+                                                                ↓
+                                                         [file_appeal]
+                                                                ↓
+                                               APPEALED → DELIBERATING → FINAL
 ```
 
 ---
@@ -233,22 +267,45 @@ SUBMITTED → RESPONDED? → [request_judgment] → DELIBERATING → DECIDED
 ## Key Design Decisions
 
 **Live URL evidence fetching inside `nondet()`**
-When `request_judgment` is called, each validator independently runs `gl.nondet.web.get(url)` for every `https://` evidence reference submitted with the case. The fetched content (up to 3,000 chars per URL) is injected into the AI prompt before inference. This means validators analyze real documents, not just reference strings. Storage access (`self.*`) is forbidden inside `nondet()` blocks — the fetch logic operates entirely on closure variables captured before the nondet block starts.
+When `request_judgment` is called, each validator independently runs `gl.nondet.web.get(url)` for the institution policy document URL and for every `https://` evidence reference submitted with the case. The fetched content (up to 5,000 chars for the policy doc, 3,000 chars per evidence URL) is injected into the AI prompt before inference. Validators analyze real live documents, not just reference strings. Storage access (`self.*`) is forbidden inside `nondet()` blocks — all values are captured as plain Python closure variables before the block opens.
 
 **`prompt_non_comparative` instead of `prompt_comparative`**
 `prompt_comparative` requires all 5 validators to produce byte-identical LLM outputs. LLMs are inherently non-deterministic — the same prompt yields different phrasings every run. `prompt_non_comparative` lets each validator produce its own output and validates it against `task`/`criteria` constraints instead. This makes consensus reliable across real AI inference.
 
-**Action Room — staged case flow**
-The case detail page uses a progressive "Action Room" model: after filing, the case is explicitly open for institution response before judgment can be requested. The UI gates each party's action on the current case status, with a process timeline showing where the case stands. This matches how real university proceedings work.
+**Validator Consensus Panel**
+After each judgment, the frontend reads the transaction receipt's `consensus_data` to display per-validator votes (agree/disagree/idle/timeout), the consensus result name, number of rounds, leader address, and agreement rate as a visual progress bar. This exposes GenLayer's Optimistic Democracy mechanism directly to the user rather than hiding it behind a black-box result.
 
-**Client-side address filtering for My Cases**
-GenLayer Python stores `gl.message.sender_address` as a lowercase hex string. MetaMask returns EIP-55 checksummed addresses. The `cases_by_filer` TreeMap key never matches due to casing. `readCasesByFiler` fetches all recent cases and filters with `.toLowerCase()` on both sides — reliable without an on-chain migration.
+**Action Room — staged case flow**
+The case detail page uses a progressive "Action Room" model: after filing, the case is explicitly open for institution response before judgment can be requested. The UI gates each party's action on the current case status with a process timeline showing where the case stands. This matches how real university proceedings work.
+
+**Precedent context injection**
+Before each judgment, the contract scans up to 3 prior decided cases of the same type and injects their outcome, confidence score, and reasoning summary into the prompt. Later cases are contextually consistent with earlier ones of the same category — the system builds institutional memory on-chain.
+
+**Markdown fence stripping**
+GenLayer validators sometimes wrap LLM output in ```json ... ``` markdown fences even when instructed to return raw JSON. The contract strips fences before `json.loads` to prevent `JSONDecodeError` from crashing the execution after consensus is already reached.
 
 **Non-blocking judgment transactions**
-`request_judgment` triggers LLM execution across validators, which takes 3–15 minutes. The frontend submits the tx, returns the hash immediately, and polls `readCase()` every 15 seconds until the status becomes `DECIDED` or `FINAL`. The deliberating UI keeps users informed throughout without blocking.
+`request_judgment` triggers LLM execution across validators, which takes 5–15 minutes. The frontend submits the tx, returns the hash immediately, and polls `readCase()` every 15 seconds until status becomes `DECIDED` or `FINAL`. The deliberating UI keeps users informed throughout without blocking the session.
 
-**Precedent context**
-Before each judgment, the contract scans up to 3 prior decided cases of the same type and injects their outcome, confidence, and reasoning summary into the prompt. Later cases are therefore contextually consistent with earlier ones of the same category.
+---
+
+## Roadmap
+
+CJP is built on a problem that exists at every university. The current implementation covers the core arbitration flow end-to-end. Here is the path forward:
+
+**Near-term**
+- **Reputation scoring** — validators and institutions build on-chain track records based on case outcomes; institutions with repeated procedural violations are flagged publicly
+- **Multi-institution support** — universities deploy their own contract instances; a factory contract manages discovery and cross-institution precedent sharing
+- **Email/notification layer** — off-chain notifications when case status changes, keeping non-crypto-native students informed without requiring them to poll the app
+
+**Medium-term**
+- **Document verification** — integrate IPFS or Arweave so evidence documents are content-addressed and tamper-proof, not just linked by URL
+- **Structured policy ingestion** — institutions upload their policy handbooks on-chain; validators reference the authoritative stored version rather than fetching from a potentially mutable URL
+- **Appeals committee simulation** — multi-round deliberation where validators represent different committee roles (procedural reviewer, subject expert, student advocate)
+
+**Long-term**
+- **Cross-chain deployment** — port to GenLayer mainnet; explore bridging judgment outcomes to other chains for credential verification
+- **Open arbitration protocol** — CJP as a base layer that any organization (not just universities) can deploy for transparent dispute resolution: employer/employee disputes, DAO governance appeals, tenant/landlord complaints
 
 ---
 
