@@ -107,6 +107,7 @@ async function main() {
     'CSC/2021/0047',
     'Computer Science',
     String(Date.now()),
+    'https://raw.githubusercontent.com/Olawalter/campus-justice-protocol/main/README.md',
   ])
   await waitFinalized(WALLET_A, hash1)
 
@@ -120,6 +121,7 @@ async function main() {
   log(`  status: ${caseData.status}`)
   log(`  filer: ${caseData.filer}`)
   log(`  evidence refs: ${JSON.stringify(caseData.evidence_refs)}`)
+  log(`  policy_url: ${caseData.policy_url || '(none)'}`)
 
   // ── Stage 2: Institution Response ──────────────────────────────────────────
   log('\n── Stage 2: Submit Response (Wallet B — Institution) ──')
@@ -150,6 +152,19 @@ async function main() {
   log(`  findings:   ${JSON.stringify(j.key_findings)}`)
   log(`  recommendation: ${j.recommendation}`)
 
+  // Fetch validator consensus data
+  try {
+    const c0 = createClient({ chain: studionet })
+    const receipt3 = await c0.waitForTransactionReceipt({ hash: hash3, status: TransactionStatus.FINALIZED, retries: 5, interval: 3000 })
+    const cd3 = receipt3.consensus_data
+    if (cd3?.votes) {
+      const votes = Object.entries(cd3.votes)
+      const agreed = votes.filter(([,v]) => v === 'agree').length
+      log(`  validators: ${agreed}/${votes.length} agreed · rounds: ${receipt3.num_of_rounds} · result: ${receipt3.result_name}`)
+      votes.forEach(([addr, vote]) => log(`    ${addr.slice(0,10)}… → ${vote}${addr.toLowerCase() === receipt3.last_leader?.toLowerCase() ? ' [leader]' : ''}`))
+    }
+  } catch(e) { log(`  (consensus data unavailable: ${e.message})`) }
+
   // ── Stage 4: File Appeal ───────────────────────────────────────────────────
   log('\n── Stage 4: File Appeal (Wallet A) ──')
   const hash4 = await writeContract(WALLET_A, 'file_appeal', [
@@ -173,6 +188,19 @@ async function main() {
   log(`  appeal outcome:    ${fj.outcome}`)
   log(`  appeal confidence: ${fj.confidence}`)
   log(`  appeal reasoning:  ${fj.reasoning.slice(0, 200)}…`)
+
+  // Fetch appeal validator consensus data
+  try {
+    const c0 = createClient({ chain: studionet })
+    const receipt5 = await c0.waitForTransactionReceipt({ hash: hash5, status: TransactionStatus.FINALIZED, retries: 5, interval: 3000 })
+    const cd5 = receipt5.consensus_data
+    if (cd5?.votes) {
+      const votes = Object.entries(cd5.votes)
+      const agreed = votes.filter(([,v]) => v === 'agree').length
+      log(`  appeal validators: ${agreed}/${votes.length} agreed · rounds: ${receipt5.num_of_rounds} · result: ${receipt5.result_name}`)
+      votes.forEach(([addr, vote]) => log(`    ${addr.slice(0,10)}… → ${vote}${addr.toLowerCase() === receipt5.last_leader?.toLowerCase() ? ' [leader]' : ''}`))
+    }
+  } catch(e) { log(`  (appeal consensus data unavailable: ${e.message})`) }
 
   // ── Summary ────────────────────────────────────────────────────────────────
   log('\n═══════════════════════════════════')
