@@ -2,7 +2,7 @@
 
 > A decentralized AI arbitration system for university disputes — powered by GenLayer intelligent contracts and Optimistic Democracy.
 
-**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0xe195319347AaDE938d5949Df4502a95B2Cc35014`
+**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0x46F3A73A7e7Fb331aA1b430d2FCb7eFEBD852CAe`
 
 **Stack:** Next.js 15 · TypeScript · Tailwind CSS 4 · genlayer-js 1.1.8
 
@@ -158,7 +158,7 @@ Create `frontend/.env.local`:
 
 ```env
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0xe195319347AaDE938d5949Df4502a95B2Cc35014
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x46F3A73A7e7Fb331aA1b430d2FCb7eFEBD852CAe
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_APP_URL=https://campusjp.vercel.app
 ```
