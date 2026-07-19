@@ -21,6 +21,7 @@ export function FileCaseForm() {
     evidenceRefs: '',
     matricNumber: '',
     department: '',
+    policyUrl: '',
   })
 
   function set(k: keyof typeof form, v: string) {
@@ -42,6 +43,7 @@ export function FileCaseForm() {
         evidenceRefs: form.evidenceRefs.split('\n').map(s => s.trim()).filter(Boolean),
         matricNumber: form.matricNumber,
         department: form.department,
+        policyUrl: form.policyUrl.trim(),
       })
       setDone(true)
       setTimeout(() => router.push('/my-cases'), 3000)
@@ -234,6 +236,27 @@ export function FileCaseForm() {
                 })}
               </div>
             )}
+
+            {/* Institution policy URL */}
+            <div>
+              <label className="block text-xs mb-1.5" style={{ color: 'var(--color-muted)' }}>
+                Institution Policy URL <span style={{ opacity: 0.5 }}>(optional)</span>
+              </label>
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg"
+                style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <span style={{ fontSize: 14 }}>📋</span>
+                <input
+                  className="flex-1 bg-transparent text-sm outline-none font-mono"
+                  style={{ color: 'var(--color-text)' }}
+                  placeholder="https://university.edu/policies/academic-integrity"
+                  value={form.policyUrl}
+                  onChange={e => set('policyUrl', e.target.value)}
+                />
+              </div>
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                Each validator fetches the institution&apos;s published policy live and cites specific clauses in the judgment.
+              </p>
+            </div>
 
             <div
               className="p-4 rounded-xl text-xs space-y-1"

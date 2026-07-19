@@ -29,6 +29,7 @@ interface FileCaseArgs {
   evidenceRefs: string[]
   matricNumber: string
   department: string
+  policyUrl?: string
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null)
@@ -166,7 +167,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     writeContract('file_case', [
       args.caseType, args.title, args.description,
       JSON.stringify(args.evidenceRefs), args.matricNumber, args.department,
-      String(Date.now()),  // real Unix ms timestamp passed to contract
+      String(Date.now()),
+      args.policyUrl?.trim() ?? '',
     ])
 
   const submitResponse = async (caseId: string, responseText: string) =>

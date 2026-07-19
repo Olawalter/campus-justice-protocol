@@ -39,6 +39,7 @@ export interface Case {
   title: string
   description: string
   evidence_refs: string[]
+  policy_url: string
   matric_number: string
   department: string
   status: CaseStatus
