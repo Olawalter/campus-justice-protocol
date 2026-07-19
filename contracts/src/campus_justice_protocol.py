@@ -76,6 +76,7 @@ class CampusJusticeProtocol(gl.Contract):
         description = case["description"]
         response_text = case.get("response_text", "")
         evidence_refs = case.get("evidence_refs", [])
+        policy_url = case.get("policy_url", "")
         appeal_grounds = (case.get("appeal") or {}).get("grounds", "")
         original_judgment = case.get("judgment") or {}
         precedents = self._precedent_context(case_type)
@@ -106,6 +107,7 @@ class CampusJusticeProtocol(gl.Contract):
 
         # Prompt template — evidence section injected dynamically inside nondet
         # so each validator fetches URL evidence independently (GenLayer web access)
+        policy_note = f" · institution policy fetched from {policy_url}" if policy_url.startswith("http") else ""
         prompt_header = (
             f"You are a {role} for the Campus Justice Protocol — "
             "a decentralized AI arbitration system for university disputes.\n\n"
@@ -113,7 +115,7 @@ class CampusJusticeProtocol(gl.Contract):
             f"TITLE: {title}\n\n"
             f"STUDENT COMPLAINT:\n{description}\n\n"
             f"INSTITUTION RESPONSE:\n{response_text if response_text else 'No response submitted.'}\n\n"
-            f"EVIDENCE ({len(evidence_refs)} item(s) — URLs fetched live by each validator):\n"
+            f"EVIDENCE ({len(evidence_refs)} item(s) — URLs fetched live by each validator{policy_note}):\n"
         )
 
         prompt_footer = (
@@ -149,7 +151,20 @@ class CampusJusticeProtocol(gl.Contract):
                 else:
                     parts.append(f"- {ref}")
             evidence_block = "\n\n".join(parts) if parts else "None provided."
-            prompt = prompt_header + evidence_block + prompt_footer
+
+            # Fetch institution policy document if URL provided
+            policy_section = ""
+            if policy_url.startswith("http://") or policy_url.startswith("https://"):
+                try:
+                    presp = gl.nondet.web.get(policy_url)
+                    pcontent = presp.body.decode("utf-8", errors="replace")[:5000]
+                    policy_section = f"\n\nINSTITUTION POLICY DOCUMENT (fetched live from {policy_url}):\n{pcontent}"
+                except Exception as e:
+                    policy_section = f"\n\nINSTITUTION POLICY DOCUMENT: [fetch failed — {str(e)[:80]}]"
+            elif policy_url:
+                policy_section = f"\n\nINSTITUTION POLICY DOCUMENT: {policy_url}"
+
+            prompt = prompt_header + evidence_block + policy_section + prompt_footer
 
             raw = gl.nondet.exec_prompt(prompt)
             cleaned = raw.strip()
@@ -202,6 +217,7 @@ class CampusJusticeProtocol(gl.Contract):
         matric_number: str,
         department: str,
         filed_at: str,
+        policy_url: str = "",
     ) -> str:
         if case_type not in VALID_CASE_TYPES:
             raise Exception(f"Invalid case type. Must be one of: {', '.join(VALID_CASE_TYPES)}")
@@ -225,6 +241,7 @@ class CampusJusticeProtocol(gl.Contract):
             "title": title.strip(),
             "description": description.strip(),
             "evidence_refs": refs,
+            "policy_url": policy_url.strip() if policy_url else "",
             "matric_number": matric_number.strip(),
             "department": department.strip(),
             "status": "SUBMITTED",

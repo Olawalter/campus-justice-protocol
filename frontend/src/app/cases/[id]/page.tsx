@@ -7,6 +7,7 @@ import { readCase } from '@/lib/genlayer'
 import { useWallet } from '@/contexts/WalletContext'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JudgmentPanel } from '@/components/cases/JudgmentPanel'
+import { ValidatorConsensusPanel } from '@/components/cases/ValidatorConsensusPanel'
 import { CASE_TYPE_META } from '@/lib/constants'
 
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -50,14 +51,20 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     return () => clearInterval(timer)
   }, [awaitingJudgment, id])
 
-  async function doAction(action: string, fn: () => Promise<string>) {
+  async function doAction(action: string, fn: () => Promise<string>, caseIdForStorage?: string) {
     setActiveAction(action)
     setActionError(null)
     const isJudgmentAction = action === 'judgment' || action === 'appeal-judgment'
     try {
-      await fn()
+      const hash = await fn()
       if (isJudgmentAction) {
-        // Tx submitted but LLM consensus takes minutes — poll until DECIDED
+        // Save tx hash so ValidatorConsensusPanel can fetch consensus data later
+        if (typeof window !== 'undefined' && caseIdForStorage) {
+          const key = action === 'appeal-judgment'
+            ? `cjp_appeal_tx_${caseIdForStorage}`
+            : `cjp_judgment_tx_${caseIdForStorage}`
+          localStorage.setItem(key, hash)
+        }
         setAwaitingJudgment(true)
       } else {
         await load()
@@ -90,6 +97,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const meta = CASE_TYPE_META[c.case_type] ?? { label: c.case_type, icon: '📄' }
   const isFiler = address?.toLowerCase() === c.filer.toLowerCase()
   const evidenceRefs: string[] = Array.isArray(c.evidence_refs) ? c.evidence_refs : []
+  const policyUrl: string = c.policy_url ?? ''
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12 space-y-6">
@@ -134,12 +142,28 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           <div>
             <p className="text-xs mb-2" style={{ color: 'var(--color-muted)' }}>Evidence</p>
             <div className="space-y-1">
-              {evidenceRefs.map((ref, i) => (
-                <div key={i} className="text-xs font-mono px-3 py-1.5 rounded-lg truncate"
-                  style={{ background: 'rgba(124,58,237,0.06)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}>
-                  {ref}
-                </div>
-              ))}
+              {evidenceRefs.map((ref, i) => {
+                const isUrl = ref.startsWith('http://') || ref.startsWith('https://')
+                return (
+                  <div key={i} className="flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg"
+                    style={{ background: isUrl ? 'rgba(74,222,128,0.05)' : 'rgba(124,58,237,0.06)', color: isUrl ? '#4ade80' : 'var(--color-primary-light)', border: `1px solid ${isUrl ? 'rgba(74,222,128,0.15)' : 'var(--color-border)'}` }}>
+                    <span>{isUrl ? '🌐' : '📄'}</span>
+                    <span className="truncate flex-1">{ref}</span>
+                    {isUrl && <span className="shrink-0 opacity-60" style={{ fontFamily: 'sans-serif' }}>live fetch</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        {policyUrl && (
+          <div>
+            <p className="text-xs mb-2" style={{ color: 'var(--color-muted)' }}>Institution Policy Document</p>
+            <div className="flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-lg"
+              style={{ background: 'rgba(59,130,246,0.06)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
+              <span>📋</span>
+              <span className="truncate flex-1">{policyUrl}</span>
+              <span className="shrink-0 opacity-60" style={{ fontFamily: 'sans-serif' }}>live fetch</span>
             </div>
           </div>
         )}
@@ -155,7 +179,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
 
       {/* Judgment */}
       {c.judgment && <JudgmentPanel judgment={c.judgment} />}
+      {c.judgment && <ValidatorConsensusPanel caseId={c.case_id} />}
       {c.final_judgment && <JudgmentPanel judgment={c.final_judgment} isAppeal />}
+      {c.final_judgment && <ValidatorConsensusPanel caseId={c.case_id} isAppeal />}
 
       {/* ── Action Room ───────────────────────────────────────────────────────── */}
 
@@ -260,7 +286,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                   </p>
                 </div>
                 <button
-                  onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
+                  onClick={() => doAction('judgment', () => requestJudgment(c.case_id), c.case_id)}
                   disabled={txPending}
                   className="px-4 py-2 rounded-lg text-sm font-medium"
                   style={{ background: 'rgba(124,58,237,0.15)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: txPending ? 0.6 : 1 }}
@@ -297,7 +323,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             )}
             {connected && isFiler && (
               <button
-                onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
+                onClick={() => doAction('judgment', () => requestJudgment(c.case_id), c.case_id)}
                 disabled={txPending}
                 className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
                 style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
@@ -394,7 +420,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                   </div>
                 )}
                 <button
-                  onClick={() => doAction('appeal-judgment', () => requestAppealJudgment(c.case_id))}
+                  onClick={() => doAction('appeal-judgment', () => requestAppealJudgment(c.case_id), c.case_id)}
                   disabled={txPending}
                   className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
                   style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
