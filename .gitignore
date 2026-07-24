@@ -13,3 +13,6 @@ dist/
 firebase-debug.log
 .claude/
 scripts/.env
+
+.vercel
+.env*
