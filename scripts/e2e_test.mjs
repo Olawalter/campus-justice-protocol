@@ -43,7 +43,7 @@ if (!PK_A || !PK_B) {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const CONTRACT = '0xD5d9875ef33c369A59e47c2a0348f0e18897436D'
+const CONTRACT = '0x83a1ebE176E58f286ee1C934E3513FF48995B916'
 
 const WALLET_A = { privateKey: PK_A }
 const WALLET_B = { privateKey: PK_B }
