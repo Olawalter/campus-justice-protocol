@@ -17,38 +17,48 @@ export type CaseStatus =
 
 export type Outcome = 'UPHELD' | 'DISMISSED' | 'PARTIAL' | 'INCONCLUSIVE'
 
+export interface EvidenceItem {
+  url: string
+  description: string
+  submitted_by: string
+  submitted_at: number
+}
+
 export interface Judgment {
   outcome: Outcome
   reasoning: string
   key_findings: string[]
   recommendation: string
   confidence: number
-  audit_trail?: string[]
-  decided_at: string
 }
 
 export interface Appeal {
   appellant: string
+  appellant_role: 'filer' | 'respondent'
   grounds: string
 }
 
 export interface Case {
   case_id: string
   filer: string
+  respondent: string
   case_type: CaseType
   title: string
   description: string
-  evidence_refs: string[]
-  policy_url: string
   matric_number: string
   department: string
+  policy_url: string
   status: CaseStatus
+  created_at: number          // UTC unix seconds
+  evidence_deadline: number   // UTC unix seconds
+  appeal_deadline: number | null
+  finalized_at: number | null
+  filer_evidence: EvidenceItem[]
+  respondent_evidence: EvidenceItem[]
   response_text: string
-  respondent: string
   judgment: Judgment | null
   appeal: Appeal | null
   final_judgment: Judgment | null
-  filed_at: string
 }
 
 export interface Stats {

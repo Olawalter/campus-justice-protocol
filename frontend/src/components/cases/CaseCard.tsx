@@ -1,12 +1,8 @@
 import Link from 'next/link'
 
-// filed_at is a Unix ms timestamp string (new) or case counter string (old)
-function formatFiledAt(filedAt: string): string {
-  const n = Number(filedAt)
-  if (!filedAt || isNaN(n)) return '—'
-  // If it looks like a real timestamp (> year 2000 in ms = 946684800000)
-  if (n > 946684800000) return new Date(n).toLocaleDateString()
-  return `Case #${filedAt}`
+function formatCreatedAt(createdAt: number | undefined): string {
+  if (!createdAt) return '—'
+  return new Date(createdAt * 1000).toLocaleDateString()
 }
 import { Case } from '@/lib/types'
 import { CASE_TYPE_META } from '@/lib/constants'
@@ -53,7 +49,7 @@ export function CaseCard({ c }: CaseCardProps) {
           </div>
           <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--color-muted)' }}>
             <span className="font-mono">#{c.case_id.slice(-6)}</span>
-            <span>{formatFiledAt(c.filed_at)}</span>
+            <span>{formatCreatedAt(c.created_at)}</span>
           </div>
         </div>
       </div>

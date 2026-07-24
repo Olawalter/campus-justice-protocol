@@ -50,27 +50,9 @@ export function JudgmentPanel({ judgment, isAppeal = false }: { judgment: Judgme
         </div>
       ) : null}
 
-      {judgment.audit_trail?.length ? (
-        <div>
-          <p className="text-xs mb-2" style={{ color: 'var(--color-muted)' }}>Audit Trail</p>
-          <div className="space-y-1.5">
-            {judgment.audit_trail.map((entry, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(109,40,217,0.08)', color: 'var(--color-muted)' }}
-              >
-                <span className="font-mono shrink-0 opacity-50">{String(i + 1).padStart(2, '0')}</span>
-                <span>{entry}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <div className="flex items-center gap-1.5 text-xs pt-1" style={{ color: 'rgba(139,92,246,0.6)' }}>
         <span>⬡</span>
-        <span>Decided via GenLayer validator consensus{judgment.decided_at && !isNaN(new Date(judgment.decided_at).getTime()) ? ` · ${new Date(judgment.decided_at).toLocaleString()}` : ''}</span>
+        <span>Decided via GenLayer validator consensus — Optimistic Democracy</span>
       </div>
     </div>
   )

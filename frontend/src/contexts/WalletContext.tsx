@@ -14,6 +14,7 @@ interface WalletContextValue {
   connect: () => Promise<void>
   disconnect: () => void
   fileCase: (args: FileCaseArgs) => Promise<string>
+  submitEvidence: (caseId: string, url: string, description: string) => Promise<string>
   submitResponse: (caseId: string, responseText: string) => Promise<string>
   requestJudgment: (caseId: string) => Promise<string>
   fileAppeal: (caseId: string, grounds: string) => Promise<string>
@@ -26,16 +27,14 @@ interface FileCaseArgs {
   caseType: string
   title: string
   description: string
-  evidenceRefs: string[]
   matricNumber: string
   department: string
+  respondent: string
   policyUrl?: string
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null)
 
-// Switch MetaMask to GenLayer network using standard EIP-3326/EIP-3085
-// Avoids genlayer-js client.connect() which calls wallet_getSnaps (unsupported)
 async function switchToGenLayer() {
   if (typeof window === 'undefined' || !window.ethereum) return
   const chainIdHex = `0x${CHAIN_ID.toString(16)}`
@@ -45,7 +44,6 @@ async function switchToGenLayer() {
       params: [{ chainId: chainIdHex }],
     })
   } catch (err: unknown) {
-    // 4902 = chain not added yet
     if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: number }).code === 4902) {
       await window.ethereum.request({
         method: 'wallet_addEthereumChain',
@@ -69,7 +67,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [txPending, setTxPending] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
 
-  // Auto-reconnect on reload
   useEffect(() => {
     if (typeof window === 'undefined' || !window.ethereum) return
     window.ethereum.request({ method: 'eth_accounts' }).then((result: unknown) => {
@@ -97,8 +94,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setAddress(accounts[0])
       await switchToGenLayer()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to connect wallet'
-      setError(msg)
+      setError(e instanceof Error ? e.message : 'Failed to connect wallet')
     } finally {
       setConnecting(false)
     }
@@ -110,17 +106,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function writeContract(functionName: string, args: any[]): Promise<string> {
+  async function writeContract(functionName: string, args: any[], waitForFinality = true): Promise<string> {
     if (!address) throw new Error('Wallet not connected')
     if (typeof window === 'undefined' || !window.ethereum) throw new Error('No wallet detected')
 
     setTxPending(true)
     setTxHash(null)
     try {
-      // Ensure wallet is on the correct network first
       await switchToGenLayer()
 
-      // Create client with injected provider so MetaMask handles signing
       const client = createClient({
         chain: getChain(),
         account: address as `0x${string}`,
@@ -137,11 +131,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       setTxHash(hash)
 
-      // For judgment calls (LLM-based), validators take several minutes.
-      // We return the hash immediately and let the UI poll for state changes.
-      // For simple writes (file_case, submit_response, file_appeal), wait for finalization.
-      const isJudgmentCall = functionName === 'request_judgment' || functionName === 'request_appeal_judgment'
-      if (!isJudgmentCall) {
+      // Judgment calls trigger multi-minute LLM consensus — return hash immediately
+      // so the UI can show the "awaiting finality" state while polling.
+      // All other writes wait for FINALIZED before returning.
+      if (waitForFinality) {
         await client.waitForTransactionReceipt({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           hash: hash as any,
@@ -165,23 +158,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const fileCase = async (args: FileCaseArgs) =>
     writeContract('file_case', [
-      args.caseType, args.title, args.description,
-      JSON.stringify(args.evidenceRefs), args.matricNumber, args.department,
-      String(Date.now()),
+      args.caseType,
+      args.title,
+      args.description,
+      args.matricNumber,
+      args.department,
+      args.respondent.trim(),
       args.policyUrl?.trim() ?? '',
     ])
+
+  const submitEvidence = async (caseId: string, url: string, description: string) =>
+    writeContract('submit_evidence', [caseId, url, description])
 
   const submitResponse = async (caseId: string, responseText: string) =>
     writeContract('submit_response', [caseId, responseText])
 
+  // Judgment calls: don't wait for finality in writeContract — the case page
+  // handles the FINALIZED wait and shows "Accepted → awaiting finality" while polling.
   const requestJudgment = async (caseId: string) =>
-    writeContract('request_judgment', [caseId])
+    writeContract('request_judgment', [caseId], false)
 
   const fileAppeal = async (caseId: string, grounds: string) =>
     writeContract('file_appeal', [caseId, grounds])
 
   const requestAppealJudgment = async (caseId: string) =>
-    writeContract('request_appeal_judgment', [caseId])
+    writeContract('request_appeal_judgment', [caseId], false)
 
   return (
     <WalletContext.Provider value={{
@@ -192,6 +193,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       connect,
       disconnect,
       fileCase,
+      submitEvidence,
       submitResponse,
       requestJudgment,
       fileAppeal,

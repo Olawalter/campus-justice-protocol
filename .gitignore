@@ -12,3 +12,4 @@ dist/
 .firebase/
 firebase-debug.log
 .claude/
+scripts/.env
