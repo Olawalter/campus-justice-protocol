@@ -2,7 +2,7 @@
 
 > A decentralized AI arbitration system for university disputes — powered by GenLayer intelligent contracts and Optimistic Democracy.
 
-**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0xD5d9875ef33c369A59e47c2a0348f0e18897436D`
+**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0x83a1ebE176E58f286ee1C934E3513FF48995B916`
 
 **Stack:** Next.js 15 · TypeScript · Tailwind CSS 4 · genlayer-js 1.1.8
 
@@ -10,17 +10,20 @@
 
 ## Submission Notes
 
-Campus Justice Protocol is a decentralized arbitration system for university disputes. Students file a case, submit evidence (including live URLs to policy documents), and the institution responds on-chain using their wallet. When either party requests judgment, GenLayer's 5 validators each independently fetch the linked policy document and evidence URLs from the live web, run an AI analysis of the full case, and reach consensus via Optimistic Democracy. The final judgment — outcome, reasoning, key findings, confidence score, and recommendation — is written permanently to the contract. Students can then appeal, triggering a second validator consensus round that re-evaluates with the appeal grounds.
+**What it does:** Campus Justice Protocol is a decentralized arbitration system for university disputes — grade appeals, exam misconduct, scholarship revocations, election complaints. A student files a case on-chain, names the institution's wallet as respondent, and submits evidence as live URLs. The institution responds with their wallet. When judgment is requested, GenLayer's 5 validators each independently fetch the institution's policy document URL and every evidence URL from the live web in real time, run a full AI analysis of the case against those fetched documents, and reach consensus via Optimistic Democracy. The judgment — outcome (UPHELD/DISMISSED/PARTIAL), reasoning, key findings, confidence score, and recommendation — is written permanently to the contract. Either party can appeal, triggering a second validator consensus round with the appeal grounds.
 
-**The trust problem it solves:** University dispute processes are slow, opaque, and fully controlled by the institution being disputed. There is no audit trail, no neutral arbitrator, and no way for students to verify that a decision was fairly reached. CJP replaces that with a public, on-chain record where every judgment is verifiable, every validator vote is visible, and no single party controls the outcome.
+**The trust problem it solves:** University dispute processes are controlled by the institution being disputed. There is no neutral arbitrator, no audit trail, and no way for a student to verify that a decision was fairly reached. When an institution revokes a scholarship or applies an exam penalty, the student has no recourse that isn't also controlled by the institution. CJP replaces that with a public on-chain record where every judgment is verifiable, every validator vote is visible, and the arbitration cannot be influenced by either party after the case is filed. The institution's own published policy documents are fetched live by validators and used as the binding reference — the institution cannot selectively cite policy that doesn't exist in writing.
+
+**Why live web data matters here:** The outcome depends on what the institution's actual policy says, not what either party claims it says. Validators fetch the policy URL at judgment time — if the institution points to a document that doesn't support their position, that is visible to every validator independently. This is a genuine trust problem that requires live authoritative sources, not a cached or user-supplied text field.
 
 **How to use it:**
 1. Go to [campusjp.vercel.app](https://campusjp.vercel.app) and connect a MetaMask wallet on GenLayer Studionet
-2. Click **File a Case** — fill in case type, description, evidence refs, and optionally a policy document URL
-3. The institution connects a separate wallet and submits their official response
-4. Either party clicks **Request AI Judgment** — validators fetch live evidence and reach consensus (5–15 min)
-5. The judgment appears on the case page with full reasoning, findings, and per-validator vote breakdown
-6. The student can file an appeal; a second consensus round produces the final judgment
+2. Click **File a Case** — fill in case type, description, matric number, department, respondent wallet address, and optionally the institution's policy document URL
+3. Both parties submit evidence via `submit_evidence` (up to 5 URLs each) during the open evidence window (72 hours)
+4. The institution connects their wallet and submits a formal written response
+5. Either party clicks **Request AI Judgment** — validators fetch all live evidence and policy URLs and reach consensus (5–15 min)
+6. The judgment appears on the case page with full reasoning, findings, confidence score, and per-validator vote breakdown
+7. Either party can file an appeal; a second consensus round produces the final immutable judgment
 
 ---
 
@@ -183,7 +186,7 @@ Create `frontend/.env.local`:
 
 ```env
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0xD5d9875ef33c369A59e47c2a0348f0e18897436D
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x83a1ebE176E58f286ee1C934E3513FF48995B916
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_APP_URL=https://campusjp.vercel.app
 ```
@@ -226,9 +229,10 @@ The intelligent contract lives in `contracts/src/campus_justice_protocol.py`.
 
 ```python
 class CampusJusticeProtocol(gl.Contract):
-    cases: TreeMap[str, str]           # case_id → JSON
-    case_ids: DynArray[str]            # ordered list for pagination
-    cases_by_filer: TreeMap[str, str]  # address → case IDs
+    cases: TreeMap[str, str]                # case_id → JSON
+    case_ids: DynArray[str]                 # ordered list for pagination
+    cases_by_filer: TreeMap[str, str]       # address → case IDs JSON
+    cases_by_respondent: TreeMap[str, str]  # address → case IDs JSON
     case_counter: u256
 ```
 
@@ -236,11 +240,12 @@ class CampusJusticeProtocol(gl.Contract):
 
 | Method | Description |
 |---|---|
-| `file_case(case_type, title, description, evidence_refs, matric_number, department, filed_at, policy_url)` | File a new dispute case with optional institution policy document URL |
-| `submit_response(case_id, response_text)` | Institution submits official response |
-| `request_judgment(case_id)` | Trigger AI judgment — validators fetch policy URL + evidence and run LLM |
-| `file_appeal(case_id, grounds)` | Filer appeals a DECIDED case |
-| `request_appeal_judgment(case_id)` | Trigger senior AI re-evaluation of appeal |
+| `file_case(case_type, title, description, matric_number, department, respondent, policy_url)` | File a new dispute case — respondent wallet required at filing |
+| `submit_evidence(case_id, url, description)` | Submit an evidence URL (filer or respondent, up to 5 each, within 72h window) |
+| `submit_response(case_id, response_text)` | Respondent submits formal written response |
+| `request_judgment(case_id)` | Trigger AI judgment — validators fetch policy URL + all evidence URLs live, run LLM consensus |
+| `file_appeal(case_id, grounds)` | Either party appeals a DECIDED case within 48h window |
+| `request_appeal_judgment(case_id)` | Trigger senior AI re-evaluation with appeal grounds |
 
 ### Read Methods
 
@@ -249,6 +254,7 @@ class CampusJusticeProtocol(gl.Contract):
 | `get_case(case_id)` | JSON string of a single case |
 | `get_recent_cases(limit)` | JSON array of latest N cases |
 | `get_cases_by_filer(address)` | JSON array of cases filed by address |
+| `get_cases_by_respondent(address)` | JSON array of cases where address is respondent |
 | `get_case_count()` | Total cases filed |
 | `get_stats()` | Aggregate stats — totals, outcomes, upheld rate |
 
