@@ -13,14 +13,15 @@ export function FileCaseForm() {
   const [step, setStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [filedCaseId, setFiledCaseId] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     caseType: '',
     title: '',
     description: '',
-    evidenceRefs: '',
     matricNumber: '',
     department: '',
+    respondent: '',
     policyUrl: '',
   })
 
@@ -31,22 +32,24 @@ export function FileCaseForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!connected) {
-      await connect()
+    if (!connected) { await connect(); return }
+    if (!form.respondent.trim().startsWith('0x')) {
+      setError('Respondent must be a valid wallet address starting with 0x')
       return
     }
     try {
-      await fileCase({
+      const caseId = await fileCase({
         caseType: form.caseType,
         title: form.title,
         description: form.description,
-        evidenceRefs: form.evidenceRefs.split('\n').map(s => s.trim()).filter(Boolean),
         matricNumber: form.matricNumber,
         department: form.department,
+        respondent: form.respondent.trim(),
         policyUrl: form.policyUrl.trim(),
       })
+      setFiledCaseId(caseId)
       setDone(true)
-      setTimeout(() => router.push('/my-cases'), 3000)
+      setTimeout(() => router.push(`/cases/${caseId}`), 3000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed')
     }
@@ -58,14 +61,15 @@ export function FileCaseForm() {
         <div className="text-5xl">⚖</div>
         <h2 className="text-xl font-bold gradient-text">Case Filed Successfully</h2>
         <p style={{ color: 'var(--color-muted)' }} className="text-sm">
-          Your case has been submitted to the GenLayer network. Validators will deliberate and reach consensus.
+          Case <span className="font-mono font-semibold">{filedCaseId}</span> is live on GenLayer.
+          Both parties can now submit evidence on the case page.
         </p>
-        <p style={{ color: 'var(--color-muted)' }} className="text-xs">Redirecting to My Cases…</p>
+        <p style={{ color: 'var(--color-muted)' }} className="text-xs">Redirecting to case page…</p>
       </div>
     )
   }
 
-  const steps = ['Case Type', 'Details', 'Evidence']
+  const steps = ['Case Type', 'Details', 'Parties & Policy']
 
   return (
     <form onSubmit={submit} className="space-y-6">
@@ -98,6 +102,7 @@ export function FileCaseForm() {
       </div>
 
       <div className="gl-card p-6">
+
         {/* Step 0: Case type */}
         {step === 0 && (
           <div className="space-y-4 fade-up">
@@ -183,7 +188,7 @@ export function FileCaseForm() {
                 type="button"
                 onClick={() => { if (form.title && form.description) setStep(2) }}
                 disabled={!form.title || !form.description}
-                className="px-5 py-2 rounded-lg text-sm font-medium transition-all"
+                className="px-5 py-2 rounded-lg text-sm font-medium"
                 style={{ background: 'var(--color-primary)', color: '#fff', opacity: (!form.title || !form.description) ? 0.5 : 1 }}
               >
                 Continue
@@ -192,52 +197,30 @@ export function FileCaseForm() {
           </div>
         )}
 
-        {/* Step 2: Evidence + submit */}
+        {/* Step 2: Parties + policy */}
         {step === 2 && (
           <div className="space-y-4 fade-up">
-            <h2 className="text-base font-semibold">Evidence</h2>
-            <p className="text-sm" style={{ color: 'var(--color-muted)' }}>
-              Add one item per line. Paste public URLs — they will be fetched live by each GenLayer validator at judgment time.
-            </p>
+            <h2 className="text-base font-semibold">Respondent & Policy</h2>
 
-            {/* URL fetch explainer */}
-            <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
-              <span style={{ fontSize: 18, lineHeight: 1.4 }}>🌐</span>
-              <div className="text-xs space-y-0.5">
-                <p className="font-medium" style={{ color: '#4ade80' }}>Live web fetching — powered by GenLayer</p>
-                <p style={{ color: 'var(--color-muted)' }}>
-                  Any <span className="font-mono">https://</span> URL is fetched directly by each validator node during judgment. The content is read into the AI prompt as real evidence — not just a reference.
-                </p>
-              </div>
+            {/* Respondent address */}
+            <div>
+              <label className="block text-xs mb-1.5" style={{ color: 'var(--color-muted)' }}>
+                Institution Wallet Address *
+              </label>
+              <input
+                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none font-mono"
+                style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                placeholder="0x… institution wallet address"
+                value={form.respondent}
+                onChange={e => set('respondent', e.target.value)}
+                required
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                The institution must connect this wallet to submit their response and evidence. Only this address can act as respondent.
+              </p>
             </div>
 
-            <textarea
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none font-mono"
-              style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-              rows={5}
-              placeholder={'https://docs.google.com/document/d/…  ← fetched live\nhttps://pastebin.com/raw/…           ← fetched live\nExam script ref: EX-2026-CSC401-047   ← text reference'}
-              value={form.evidenceRefs}
-              onChange={e => set('evidenceRefs', e.target.value)}
-            />
-
-            {/* Show parsed refs */}
-            {form.evidenceRefs.trim() && (
-              <div className="space-y-1">
-                {form.evidenceRefs.split('\n').map(s => s.trim()).filter(Boolean).map((ref, i) => {
-                  const isUrl = ref.startsWith('http://') || ref.startsWith('https://')
-                  return (
-                    <div key={i} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg font-mono"
-                      style={{ background: isUrl ? 'rgba(74,222,128,0.06)' : 'rgba(139,92,246,0.06)', border: `1px solid ${isUrl ? 'rgba(74,222,128,0.15)' : 'var(--color-border)'}` }}>
-                      <span style={{ color: isUrl ? '#4ade80' : 'var(--color-muted)', flexShrink: 0 }}>{isUrl ? '🌐' : '📄'}</span>
-                      <span className="truncate" style={{ color: isUrl ? '#4ade80' : 'var(--color-muted)' }}>{ref}</span>
-                      <span className="ml-auto shrink-0" style={{ color: 'var(--color-muted)', fontFamily: 'sans-serif' }}>{isUrl ? 'live fetch' : 'text ref'}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Institution policy URL */}
+            {/* Policy URL */}
             <div>
               <label className="block text-xs mb-1.5" style={{ color: 'var(--color-muted)' }}>
                 Institution Policy URL <span style={{ opacity: 0.5 }}>(optional)</span>
@@ -254,22 +237,34 @@ export function FileCaseForm() {
                 />
               </div>
               <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                Each validator fetches the institution&apos;s published policy live and cites specific clauses in the judgment.
+                Each validator fetches the institution&apos;s policy live and cites specific clauses in the judgment.
               </p>
             </div>
 
-            <div
-              className="p-4 rounded-xl text-xs space-y-1"
-              style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)' }}
-            >
+            {/* Evidence note */}
+            <div className="flex items-start gap-3 p-3 rounded-lg"
+              style={{ background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+              <span style={{ fontSize: 18, lineHeight: 1.4 }}>🌐</span>
+              <div className="text-xs space-y-0.5">
+                <p className="font-medium" style={{ color: '#4ade80' }}>Evidence is submitted on the case page</p>
+                <p style={{ color: 'var(--color-muted)' }}>
+                  After filing, both you and the institution can submit up to 5 evidence URLs each during the 3-day evidence window.
+                  Each validator fetches those URLs live at judgment time.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl text-xs space-y-1"
+              style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)' }}>
               <p className="font-medium" style={{ color: 'var(--color-primary-light)' }}>GenLayer Intelligent Contract</p>
               <p style={{ color: 'var(--color-muted)' }}>
-                Your case will be evaluated by multiple AI validators running independently. Each validator fetches your URL evidence, runs the AI model, and votes. They must reach consensus (Optimistic Democracy) before a verdict is issued.
+                Validators independently fetch your evidence URLs, run AI analysis of both sides, and reach consensus via Optimistic Democracy. The judgment — including reasoning, key findings, and confidence score — is written permanently on-chain.
               </p>
             </div>
 
             {error && (
-              <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <div className="p-3 rounded-lg text-xs"
+                style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
                 {error}
               </div>
             )}
@@ -281,9 +276,9 @@ export function FileCaseForm() {
               </button>
               <button
                 type="submit"
-                disabled={txPending}
-                className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
-                style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.7 : 1 }}
+                disabled={txPending || !form.respondent.trim()}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || !form.respondent.trim()) ? 0.7 : 1 }}
               >
                 {txPending ? (
                   <>
