@@ -25,6 +25,10 @@
 6. The judgment appears on the case page with full reasoning, findings, confidence score, and per-validator vote breakdown
 7. Either party can file an appeal; a second consensus round produces the final immutable judgment
 
+**Live cases on the contract (no wallet required to view):**
+- [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) — Exam misconduct · CSC 401 plagiarism penalty · **UPHELD** (0.92 confidence) · appeal **UPHELD** (0.96 confidence)
+- [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) — Scholarship revocation · merit award dispute · full 6-stage flow completed
+
 ---
 
 ## What is this?
@@ -205,11 +209,15 @@ Open the app, click **Connect Wallet** — MetaMask auto-adds GenLayer Studionet
 ### 5. Run the end-to-end test
 
 ```bash
+# Copy and fill in your funded wallet keys
+cp scripts/.env.example scripts/.env
+
+# Run from frontend/ so genlayer-js resolves
 cd frontend
-node --input-type=module < ../scripts/e2e_test.mjs
+node ../scripts/e2e_test.mjs
 ```
 
-This files a real case, submits a response, triggers AI judgment, files an appeal, and triggers the appeal judgment — all against the live contract using funded wallets. Expect 15–30 minutes for both validator rounds.
+This files a real case, submits evidence from both parties, submits a response, triggers AI judgment, files an appeal, and triggers the appeal judgment — all against the live contract using funded wallets. Expect 15–30 minutes for both validator rounds.
 
 ---
 
