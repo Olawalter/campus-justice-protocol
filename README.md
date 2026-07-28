@@ -298,8 +298,8 @@ Before each judgment, the contract scans up to 3 prior decided cases of the same
 **Markdown fence stripping**
 GenLayer validators sometimes wrap LLM output in ```json ... ``` markdown fences even when instructed to return raw JSON. The contract strips fences before `json.loads` to prevent `JSONDecodeError` from crashing the execution after consensus is already reached.
 
-**Non-blocking judgment transactions**
-`request_judgment` triggers LLM execution across validators, which takes 5–15 minutes. The frontend submits the tx, returns the hash immediately, and polls `readCase()` every 15 seconds until status becomes `DECIDED` or `FINAL`. The deliberating UI keeps users informed throughout without blocking the session.
+**Judgment finality gate — 5-point receipt verification**
+`request_judgment` triggers LLM execution across validators and returns a tx hash immediately. The frontend stores `{ hash, functionName, caseId }` in localStorage, then waits for `TransactionStatus.FINALIZED`. On the receipt it verifies: (1) FINALIZED status, (2) `txExecutionResultName` is not `FINISHED_WITH_ERROR`, (3) `to_address` matches the deployed contract, (4) `txDataDecoded.callData` function name and case ID match what was dispatched, (5) post-finalization `readCase` to get the final state. Judgment is only rendered after all five checks pass. Until then the UI shows "Accepted → awaiting finality". The check survives page reloads via localStorage.
 
 ---
 
