@@ -75,19 +75,38 @@ All fetched web content is wrapped in `<EXTERNAL_EVIDENCE>` tags with an explici
 
 ## Finality Gate
 
-GenLayer transactions pass through two states: **Accepted** (validators have reached consensus, result is known) and **Finalized** (the result is irreversible). A judgment in Accepted state is correct but still technically reversible.
+GenLayer transactions pass through two states: **Accepted** (validators have reached consensus, result is known) and **Finalized** (the result is irreversible). A judgment in Accepted state is correct but still technically reversible. Contract-state reads also default to Accepted state unless an explicit state status is supplied, so polling `get_case` and seeing `DECIDED` is not sufficient — the underlying tx may not yet be irreversible.
 
-The CJP frontend gates judgment display on `TransactionStatus.FINALIZED`:
+CJP implements a 5-point receipt verification before displaying any judgment:
 
 ```typescript
-await client.waitForTransactionReceipt({
-  hash: judgmentTxHash,
+// 1. Wait for FINALIZED — not just Accepted
+const receipt = await client.waitForTransactionReceipt({
+  hash: meta.hash,
   status: TransactionStatus.FINALIZED,
 })
-setState('finalized') // only now render the judgment
+
+// 2. Successful execution result
+if (receipt.txExecutionResultName === 'FINISHED_WITH_ERROR') {
+  setState('error'); return
+}
+
+// 3. Matching contract address
+if (receipt.to_address?.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
+  setState('error'); return
+}
+
+// 4. Matching function name and case ID (stored in localStorage at dispatch time)
+const decoded = receipt.txDataDecoded?.callData
+if (decoded?.functionName !== meta.functionName) { setState('error'); return }
+if (String(decoded?.args?.[0]) !== meta.caseId) { setState('error'); return }
+
+// 5. Post-finalization state read — only after all checks pass
+const fresh = await readCase(caseId)
+setCaseData(fresh)
 ```
 
-While the judgment tx is in Accepted state, the UI shows **"Accepted — awaiting finality"** rather than displaying the result. This prevents a user from acting on a judgment that has not yet reached irreversibility.
+While the judgment tx is in Accepted state, the UI shows **"Accepted — awaiting finality"** rather than displaying the result. If any of the 5 checks fail, the UI shows a finality error state. The tx hash, expected function name, and case ID are stored in `localStorage` at dispatch time so the verification survives page reloads.
 
 ---
 
@@ -174,7 +193,7 @@ Both cases were filed against contract `0x83a1ebE176E58f286ee1C934E3513FF48995B9
 | Case | Type | Judgment | Confidence | Appeal | Appeal Confidence |
 |------|------|----------|------------|--------|-------------------|
 | [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | Exam Misconduct | UPHELD | 0.92 | UPHELD | 0.96 |
-| [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) | Scholarship Decision | — | — | — | — |
+| [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) | Scholarship Decision | PARTIAL | 0.92 | UPHELD | 0.88 |
 
 ---
 
