@@ -7,6 +7,7 @@ import { studionet } from 'genlayer-js/chains'
 import { TransactionStatus } from 'genlayer-js/types'
 import { Case } from '@/lib/types'
 import { readCase } from '@/lib/genlayer'
+import { CONTRACT_ADDRESS } from '@/lib/constants'
 import { useWallet } from '@/contexts/WalletContext'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JudgmentPanel } from '@/components/cases/JudgmentPanel'
@@ -15,6 +16,13 @@ import { EvidencePanel } from '@/components/cases/EvidencePanel'
 import { CASE_TYPE_META } from '@/lib/constants'
 
 type FinalityState = 'idle' | 'accepted' | 'finalized' | 'error'
+
+// Stored alongside each judgment tx hash so we can verify the receipt on return
+interface StoredJudgmentMeta {
+  hash: string
+  functionName: string
+  caseId: string
+}
 
 function DeadlineChip({ label, deadline }: { label: string; deadline: number | null }) {
   if (!deadline) return null
@@ -71,47 +79,75 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // On mount: resume finality wait if a judgment tx hash is in localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const judgmentHash = localStorage.getItem(`cjp_judgment_tx_${id}`)
-    const appealHash = localStorage.getItem(`cjp_appeal_tx_${id}`)
+    const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
+    const appealRaw = localStorage.getItem(`cjp_appeal_tx_${id}`)
 
-    // Only start waiting if case hasn't already reached a terminal state
     readCase(id).then(c => {
       if (!c) return
       setCaseData(c)
-      if (c.status !== 'DECIDED' && c.status !== 'FINAL' && judgmentHash) {
-        waitForFinality(judgmentHash, 'judgment')
+      if (c.status !== 'DECIDED' && c.status !== 'FINAL' && judgmentRaw) {
+        try {
+          const meta: StoredJudgmentMeta = JSON.parse(judgmentRaw)
+          waitForFinality(meta, 'judgment')
+        } catch { /* legacy plain-hash entry */ }
       }
-      if (c.status !== 'FINAL' && c.status === 'APPEALED' && appealHash) {
-        waitForFinality(appealHash, 'appeal')
+      if (c.status === 'APPEALED' && appealRaw) {
+        try {
+          const meta: StoredJudgmentMeta = JSON.parse(appealRaw)
+          waitForFinality(meta, 'appeal')
+        } catch { /* legacy plain-hash entry */ }
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  function waitForFinality(hash: string, kind: 'judgment' | 'appeal') {
+  function waitForFinality(meta: StoredJudgmentMeta, kind: 'judgment' | 'appeal') {
     if (finalityAbortRef.current) finalityAbortRef.current.abort()
     const abort = new AbortController()
     finalityAbortRef.current = abort
 
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
-
     setState('accepted')
 
     const client = createClient({ chain: studionet })
     client.waitForTransactionReceipt({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      hash: hash as any,
+      hash: meta.hash as any,
       status: TransactionStatus.FINALIZED,
       retries: 120,
       interval: 5000,
-    }).then(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }).then(async (receipt: any) => {
       if (abort.signal.aborted) return
-      setState('finalized')
-      // Post-finalization state read
-      const fresh = await readCase(id)
-      if (fresh && !abort.signal.aborted) {
-        setCaseData(fresh)
+
+      // ── 5-point receipt verification (team requirement) ───────────────────
+      // 2. Successful execution result
+      const execResult: string = receipt.txExecutionResultName ?? ''
+      if (execResult === 'FINISHED_WITH_ERROR') {
+        setState('error')
+        return
       }
+      // 3. Matching contract address
+      const toAddr: string = receipt.to_address ?? receipt.to ?? ''
+      if (toAddr && toAddr.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
+        setState('error')
+        return
+      }
+      // 4. Matching function name and case ID from stored meta
+      const decoded = receipt.txDataDecoded?.callData
+      if (decoded) {
+        const fn: string = decoded.functionName ?? decoded.function ?? ''
+        if (fn && fn !== meta.functionName) { setState('error'); return }
+        const args: unknown[] = decoded.args ?? decoded.arguments ?? []
+        const caseIdArg = args[0]
+        if (caseIdArg && String(caseIdArg) !== meta.caseId) { setState('error'); return }
+      }
+      // ── end verification ──────────────────────────────────────────────────
+
+      setState('finalized')
+      // 5. Post-finalization state read
+      const fresh = await readCase(id)
+      if (fresh && !abort.signal.aborted) setCaseData(fresh)
     }).catch(() => {
       if (!abort.signal.aborted) setState('error')
     })
@@ -131,8 +167,10 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
 
       if (isJudgment || isAppealJudgment) {
         const key = isAppealJudgment ? `cjp_appeal_tx_${id}` : `cjp_judgment_tx_${id}`
-        if (typeof window !== 'undefined') localStorage.setItem(key, hash)
-        waitForFinality(hash, isJudgment ? 'judgment' : 'appeal')
+        const fnName = isAppealJudgment ? 'request_appeal_judgment' : 'request_judgment'
+        const meta: StoredJudgmentMeta = { hash, functionName: fnName, caseId: id }
+        if (typeof window !== 'undefined') localStorage.setItem(key, JSON.stringify(meta))
+        waitForFinality(meta, isJudgment ? 'judgment' : 'appeal')
       } else {
         await load()
       }
