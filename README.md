@@ -27,7 +27,8 @@
 
 **Live cases on the contract (no wallet required to view):**
 - [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) — Exam misconduct · CSC 401 plagiarism penalty · **UPHELD** (0.92 confidence) · appeal **UPHELD** (0.96 confidence)
-- [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) — Scholarship revocation · merit award dispute · full 6-stage flow completed
+- [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) — Scholarship revocation · merit award dispute · judgment **PARTIAL** (0.92) · appeal **UPHELD** (0.88)
+- [CJP-000005](https://campusjp.vercel.app/cases/CJP-000005) — Exam misconduct · automated e2e test · judgment **INCONCLUSIVE** (0.75) · appeal **UPHELD** (0.84) · 3/5 validators · 1 round
 
 ---
 

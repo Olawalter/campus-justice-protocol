@@ -188,12 +188,15 @@ Each case is stored as a JSON string with the following structure:
 
 ## Live Test Cases
 
-Both cases were filed against contract `0x83a1ebE176E58f286ee1C934E3513FF48995B916` on GenLayer Studionet using real funded wallets and went through the full 6-stage flow.
+All cases were filed against contract `0x83a1ebE176E58f286ee1C934E3513FF48995B916` on GenLayer Studionet using real funded wallets and went through the full 6-stage flow.
 
 | Case | Type | Judgment | Confidence | Appeal | Appeal Confidence |
 |------|------|----------|------------|--------|-------------------|
 | [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | Exam Misconduct | UPHELD | 0.92 | UPHELD | 0.96 |
 | [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) | Scholarship Decision | PARTIAL | 0.92 | UPHELD | 0.88 |
+| [CJP-000005](https://campusjp.vercel.app/cases/CJP-000005) | Exam Misconduct (e2e) | INCONCLUSIVE | 0.75 | UPHELD | 0.84 |
+
+CJP-000005 was completed via automated e2e test on 2026-07-29. Validator consensus on the appeal: 3/5 agreed, 1 round, MAJORITY_AGREE result. The INCONCLUSIVE first judgment reflects that the test evidence URLs pointed to generic project documentation rather than actual policy documents — which is exactly the expected and correct AI behaviour (validators refused to guess when the evidence was insufficient).
 
 ---
 
