@@ -79,8 +79,8 @@ async function waitFinalized(wallet, hash) {
   await c.waitForTransactionReceipt({
     hash,
     status: TransactionStatus.FINALIZED,
-    retries: 60,
-    interval: 3000,
+    retries: 120,
+    interval: 15000,
   })
   log(`  ✓ finalized`)
 }
@@ -89,10 +89,14 @@ async function pollUntil(caseId, targetStatuses, label, intervalMs = 15000, maxW
   log(`  polling for ${label} (max ${maxWaitMs / 60000} min)…`)
   const deadline = Date.now() + maxWaitMs
   while (Date.now() < deadline) {
-    const raw = await readContract('get_case', [caseId])
-    const c = JSON.parse(raw)
-    log(`  status: ${c.status}`)
-    if (targetStatuses.includes(c.status)) return c
+    try {
+      const raw = await readContract('get_case', [caseId])
+      const c = JSON.parse(raw)
+      log(`  status: ${c.status}`)
+      if (targetStatuses.includes(c.status)) return c
+    } catch (e) {
+      log(`  read error (retrying): ${e.message?.slice(0, 80)}`)
+    }
     await new Promise(r => setTimeout(r, intervalMs))
   }
   throw new Error(`Timed out waiting for ${label}`)
