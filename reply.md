@@ -65,11 +65,14 @@ const PK_A = envVars['TEST_WALLET_A_PK'] || process.env.TEST_WALLET_A_PK
 
 ## Live Evidence
 
-Both cases went through the complete 6-stage flow (file → evidence → response → judgment → appeal → appeal judgment) against contract `0x83a1ebE176E58f286ee1C934E3513FF48995B916` on GenLayer Studionet:
+All cases went through the complete 6-stage flow (file → evidence → response → judgment → appeal → appeal judgment) against contract `0x83a1ebE176E58f286ee1C934E3513FF48995B916` on GenLayer Studionet:
 
 | Case | Type | Judgment | Confidence | Appeal | Appeal Confidence |
 |------|------|----------|------------|--------|-------------------|
 | [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | Exam Misconduct | UPHELD | 0.92 | UPHELD | 0.96 |
 | [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) | Scholarship Decision | PARTIAL | 0.92 | UPHELD | 0.88 |
+| [CJP-000005](https://campusjp.vercel.app/cases/CJP-000005) | Exam Misconduct (e2e) | INCONCLUSIVE | 0.75 | UPHELD | 0.84 |
+
+CJP-000005 was filed and completed via the automated e2e test script (`scripts/e2e_test.mjs`) on 2026-07-29, confirming all three team fixes (finality gate, prompt injection defence, no committed keys) work end-to-end against the live contract. Validator consensus: 3/5 agreed, 1 round, MAJORITY_AGREE.
 
 Extended technical documentation: [more-info.md](https://github.com/Olawalter/campus-justice-protocol/blob/main/more-info.md)
