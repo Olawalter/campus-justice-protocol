@@ -97,3 +97,48 @@ All cases went through the complete 6-stage flow (file → evidence → response
 CJP-000005 was filed and completed via the automated e2e test script (`scripts/e2e_test.mjs`) on 2026-07-29, confirming all three team fixes (finality gate, prompt injection defence, no committed keys) work end-to-end against the live contract. Validator consensus: 3/5 agreed, 1 round, MAJORITY_AGREE.
 
 Extended technical documentation: [more-info.md](https://github.com/Olawalter/campus-justice-protocol/blob/main/more-info.md)
+
+---
+
+## D. On-Chain Tx Hash — Third-Party Viewer Fix (Round 3)
+
+### What was still wrong (Round 2 shortcut)
+
+The Round 2 reply acknowledged a remaining trust gap: viewers who never dispatched the transaction — anyone other than the original filer — had no tx hash in their localStorage, so the mount effect fell through to a shortcut that set `judgmentFinalityState = 'finalized'` directly from contract-state alone. That is accepted-state, not finalized-state. A third-party viewer on any device saw the judgment without any receipt verification.
+
+### What was fixed
+
+**Contract** — two new write methods:
+
+```python
+@gl.public.write
+def record_judgment_tx(self, case_id: str, tx_hash: str) -> None:
+    # Only filer; only after DECIDED; validates 0x-prefixed 66-char hash
+    case["judgment_tx_hash"] = tx_hash.lower()
+
+@gl.public.write
+def record_appeal_tx(self, case_id: str, tx_hash: str) -> None:
+    # Filer or respondent; only after FINAL; same format guard
+    case["appeal_tx_hash"] = tx_hash.lower()
+```
+
+After the filer's frontend completes 5-point receipt verification, it calls `record_judgment_tx` (or `record_appeal_tx`) to persist the verified hash on-chain. Any viewer on any device can then retrieve it via `get_case` and run the same verification independently.
+
+**Frontend mount effect** — the third-party shortcut is gone:
+
+```
+localStorage hash present  → waitForFinality(hash)           [was: same]
+localStorage empty + hash on-chain → waitForFinality(onChainHash) [NEW: was shortcut]
+localStorage empty + no on-chain hash → judgmentFinalityState stays 'pending'
+                                          (judgment blocked until hash appears)
+```
+
+There is no longer any path that sets `judgmentFinalityState = 'finalized'` without completing the full 5-point receipt check.
+
+**Files changed:** `b582713`
+- `contracts/src/campus_justice_protocol.py` — `record_judgment_tx`, `record_appeal_tx`
+- `frontend/src/lib/types.ts` — `judgment_tx_hash`, `appeal_tx_hash` on `Case`
+- `frontend/src/contexts/WalletContext.tsx` — `recordJudgmentTx`, `recordAppealTx`
+- `frontend/src/app/cases/[id]/page.tsx` — mount effect, `waitForFinality` on-chain fallback
+
+**Contract redeployed:** `0xb8bfb40edc70fc94cf33bec0b8cb9196b4a4924a` (GenLayer Studionet)
