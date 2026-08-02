@@ -141,4 +141,92 @@ There is no longer any path that sets `judgmentFinalityState = 'finalized'` with
 - `frontend/src/contexts/WalletContext.tsx` — `recordJudgmentTx`, `recordAppealTx`
 - `frontend/src/app/cases/[id]/page.tsx` — mount effect, `waitForFinality` on-chain fallback
 
-**Contract redeployed:** `0xb8bfb40edc70fc94cf33bec0b8cb9196b4a4924a` (GenLayer Studionet)
+**Contract address (corrected):** `0xDd35E4b67f54A9da54d56775E6af7CE801971d92` (GenLayer Studionet)
+
+---
+
+## E. Receipt Verification — Field Access Fixes (Round 4)
+
+### What the team found (Round 3 shortcoming)
+
+The team's feedback: "finality verification is skipped once the read state says DECIDED or FINAL, and missing receipt metadata is accepted."
+
+Root cause: the `waitForFinality` receipt verification always reached `setState('error')` on studionet — never `'finalized'` — because the field names used to read execution result and calldata from the receipt do not exist on studionet receipts. This meant:
+- On first page load by the tx dispatcher: `record = true` path reached error, `record_judgment_tx` was never called, so `judgment_tx_hash` was never stored on-chain
+- On any subsequent load: `judgment_tx_hash` was null, state stayed `'idle'`, judgment never rendered
+- The verification appeared "skipped" because the error path also blocked display — but for the wrong reason
+
+Four specific field-access bugs in `waitForFinality`:
+
+| Bug | Was | Correct |
+|-----|-----|---------|
+| Missing `fullTransaction: true` | `waitForTransactionReceipt` called without it — `simplifyTransactionReceipt` strips JS `Map` values (empty object exclusion) | `fullTransaction: true` bypasses `simplifyTransactionReceipt` entirely |
+| Execution result | `receipt.txExecutionResultName` — undefined on studionet (only set by testnet's `decodeTransaction`) | `receipt.consensus_data.leader_receipt[0].execution_result` — value `'SUCCESS'` on studionet |
+| Calldata | `receipt.txDataDecoded?.callData` — undefined on studionet (`decodeLocalnetTransaction` never sets `txDataDecoded`; `simplifyTransactionReceipt` drops Map values anyway) | `receipt.data.calldata.base64` decoded with `abi.calldata.decode(bytes)` → `Map` |
+| Map access | `.functionName`, `.args` (property access) — Maps don't have own properties | `Map.get('method')`, `Map.get('args')` |
+
+`calldata.toString()` for arrays produces `["CJP-000001",]` (trailing comma) — not valid JSON; `abi.calldata.decode` on the raw bytes is the correct path.
+
+### What was fixed (`9248c4b`)
+
+**`frontend/src/app/cases/[id]/page.tsx` — `waitForFinality()`:**
+
+```typescript
+// 1. fullTransaction: true — raw fields preserved, Maps not dropped
+;(glClient as any).waitForTransactionReceipt({
+  hash: meta.hash as any, status: TransactionStatus.FINALIZED,
+  retries: 120, interval: 5000, fullTransaction: true,
+}).then(async (receipt: any) => {
+
+  // 1. Explicit FINALIZED status check
+  const statusName = receipt.statusName ?? receipt.status_name ?? ''
+  if (statusName !== 'FINALIZED') { setState('error'); return }
+
+  // 2. Execution result — studionet: leader_receipt[0].execution_result === 'SUCCESS'
+  //                        testnet:  receipt.txExecutionResultName === 'FINISHED_WITH_RETURN'
+  const leaderReceipt = Array.isArray(receipt.consensus_data?.leader_receipt)
+    ? receipt.consensus_data.leader_receipt[0]
+    : receipt.consensus_data?.leader_receipt
+  const execResult = receipt.txExecutionResultName ?? leaderReceipt?.execution_result ?? ''
+  if (execResult !== 'SUCCESS' && execResult !== 'FINISHED_WITH_RETURN') {
+    setState('error'); return
+  }
+
+  // 3. Contract address
+  const toAddr = (receipt.to_address ?? receipt.recipient ?? '').toLowerCase()
+  if (!toAddr || toAddr !== CONTRACT_ADDRESS.toLowerCase()) { setState('error'); return }
+
+  // 4. Calldata: decode base64 → bytes → abi.calldata.decode → Map → Map.get()
+  let callDataMap: Map<string, unknown> | null = null
+  const b64 = receipt.data?.calldata?.base64 ?? ''
+  if (b64) {
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+    const decoded = abi.calldata.decode(bytes)
+    if (decoded instanceof Map) callDataMap = decoded
+  } else {
+    const m = receipt.txDataDecoded?.callData
+    if (m instanceof Map) callDataMap = m
+  }
+  if (!callDataMap) { setState('error'); return }
+  if (callDataMap.get('method') !== meta.functionName) { setState('error'); return }
+  const args = callDataMap.get('args')
+  if (!Array.isArray(args) || String(args[0]) !== meta.caseId) { setState('error'); return }
+
+  // All checks passed — post-finalization read
+  setState('finalized')
+  const fresh = await readCase(id); if (fresh) setCaseData(fresh)
+  if (record) { recordFn(id, meta.hash).catch(() => {}) }
+})
+```
+
+**Contract address corrected:** `0xDd35E4b67f54A9da54d56775E6af7CE801971d92` (was `0xb8bfb40edc70fc94cf33bec0b8cb9196b4a4924a` — the deployment tx hash, not the contract address).
+
+### Live evidence (Round 4)
+
+E2e test run on 2026-08-02 against `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`:
+
+| Case | Judgment | `judgment_tx_hash` on-chain |
+|------|----------|-----------------------------|
+| [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | INCONCLUSIVE (0.78) | `0x5a8781b084a822c20e0a1cbbc858b6c2c005464467022ce0abd9b720cabd20ac` |
+
+Verified manually: `status: FINALIZED`, `leader_receipt.execution_result: SUCCESS`, `result_name: MAJORITY_AGREE`. Any viewer loading the case page on the deployed app hits the full 5-point verification before judgment renders.
