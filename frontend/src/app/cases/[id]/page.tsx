@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
-import { createClient } from 'genlayer-js'
+import { createClient, abi } from 'genlayer-js'
 import { studionet } from 'genlayer-js/chains'
 import { TransactionStatus } from 'genlayer-js/types'
 import { Case } from '@/lib/types'
@@ -134,43 +134,84 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
     setState('accepted')
 
-    const client = createClient({ chain: studionet })
-    client.waitForTransactionReceipt({
+    const glClient = createClient({ chain: studionet })
+    // fullTransaction: true — bypasses simplifyTransactionReceipt so all raw fields
+    // (statusName, consensus_data, data.calldata) are preserved exactly as returned
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(glClient as any).waitForTransactionReceipt({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       hash: meta.hash as any,
       status: TransactionStatus.FINALIZED,
       retries: 120,
       interval: 5000,
+      fullTransaction: true,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }).then(async (receipt: any) => {
       if (abort.signal.aborted) return
 
-      // ── 5-point receipt verification — fail closed on any missing field ──
-      // 2. Execution result must be present and not an error
-      const execResult: string = receipt.txExecutionResultName ?? ''
-      if (!execResult || execResult === 'FINISHED_WITH_ERROR') {
+      // ── 5-point receipt verification — every check is fail-closed ────────
+
+      // 1. Status must be explicitly FINALIZED
+      //    statusName is set by transactionActions.getTransaction (studionet path)
+      //    before decodeLocalnetTransaction runs; status field is numeric after that.
+      const statusName: string = receipt.statusName ?? receipt.status_name ?? ''
+      if (statusName !== 'FINALIZED') { setState('error'); return }
+
+      // 2. Execution must have succeeded
+      //    Studionet: execution_result lives in consensus_data.leader_receipt[0]
+      //    Testnet/mainnet: txExecutionResultName at top level
+      const leaderReceipts = receipt.consensus_data?.leader_receipt
+      const leaderReceipt = Array.isArray(leaderReceipts)
+        ? leaderReceipts[0]
+        : leaderReceipts
+      const execResult: string =
+        receipt.txExecutionResultName ?? leaderReceipt?.execution_result ?? ''
+      // 'SUCCESS' is studionet's value; 'FINISHED_WITH_RETURN' is testnet/mainnet
+      if (execResult !== 'SUCCESS' && execResult !== 'FINISHED_WITH_RETURN') {
         setState('error'); return
       }
+
       // 3. Contract address must match — missing field is an error
-      const toAddr: string = receipt.to_address ?? receipt.to ?? ''
-      if (!toAddr || toAddr.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
+      const toAddr: string = (receipt.to_address ?? receipt.recipient ?? '').toLowerCase()
+      if (!toAddr || toAddr !== CONTRACT_ADDRESS.toLowerCase()) {
         setState('error'); return
       }
-      // 4. Decoded call data must be present and match stored function + case ID
-      const decoded = receipt.txDataDecoded?.callData
-      if (!decoded) { setState('error'); return }
-      const fn: string = decoded.functionName ?? decoded.function ?? ''
-      if (!fn || fn !== meta.functionName) { setState('error'); return }
-      const args: unknown[] = decoded.args ?? decoded.arguments ?? []
-      if (!args.length || String(args[0]) !== meta.caseId) { setState('error'); return }
-      // ── end verification ──────────────────────────────────────────────────
+
+      // 4. Calldata must match the stored function name and case ID
+      //    Studionet path (fullTransaction=true): decodeLocalnetTransaction converts
+      //      data.calldata from raw base64 string → { base64, readable } object
+      //    Testnet/mainnet path: txDataDecoded.callData is a JS Map (from decodeTransaction)
+      //    calldata.toString() is NOT valid JSON for arrays (trailing commas) — must
+      //    decode raw bytes with abi.calldata.decode, which returns a proper Map.
+      let callDataMap: Map<string, unknown> | null = null
+      const b64: string = receipt.data?.calldata?.base64 ?? ''
+      if (b64) {
+        try {
+          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+          const decoded = abi.calldata.decode(bytes)
+          if (decoded instanceof Map) callDataMap = decoded
+        } catch { setState('error'); return }
+      } else {
+        const m = receipt.txDataDecoded?.callData
+        if (m instanceof Map) callDataMap = m
+      }
+      if (!callDataMap) { setState('error'); return }
+
+      const fn: unknown = callDataMap.get('method')
+      if (typeof fn !== 'string' || fn !== meta.functionName) { setState('error'); return }
+      const args: unknown = callDataMap.get('args')
+      if (!Array.isArray(args) || !args.length || String(args[0]) !== meta.caseId) {
+        setState('error'); return
+      }
+
+      // ── All 4 checks passed ───────────────────────────────────────────────
 
       setState('finalized')
-      // 5. Post-finalization state read
+      // 5. Post-finalization state read — only after all checks pass
       const fresh = await readCase(id)
       if (fresh && !abort.signal.aborted) setCaseData(fresh)
       // Record the verified hash on-chain so any viewer on any device can
-      // retrieve it and run the same 5-point verification independently.
+      // retrieve it and run the same verification independently.
       if (record) {
         const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
         recordFn(id, meta.hash).catch(() => { /* best-effort — non-blocking */ })

@@ -43,7 +43,7 @@ if (!PK_A || !PK_B) {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const CONTRACT = '0x83a1ebE176E58f286ee1C934E3513FF48995B916'
+const CONTRACT = '0xDd35E4b67f54A9da54d56775E6af7CE801971d92'
 
 const WALLET_A = { privateKey: PK_A }
 const WALLET_B = { privateKey: PK_B }
@@ -217,6 +217,15 @@ async function main() {
   log(`  recommendation: ${j.recommendation}`)
   await logConsensus(hash4)
 
+  // ── Stage 4b: Record judgment tx hash on-chain ─────────────────────────────
+  log('\n── Stage 4b: Record judgment tx hash on-chain (Wallet A) ──')
+  const hash4b = await writeContract(WALLET_A, 'record_judgment_tx', [caseId, hash4])
+  await waitFinalized(WALLET_A, hash4b)
+  const c4b = JSON.parse(await readContract('get_case', [caseId]))
+  log(`  judgment_tx_hash on-chain: ${c4b.judgment_tx_hash}`)
+  if (c4b.judgment_tx_hash !== hash4.toLowerCase()) throw new Error('judgment_tx_hash mismatch!')
+  log('  ✓ on-chain hash matches submitted tx')
+
   // ── Stage 5: File appeal ───────────────────────────────────────────────────
   log('\n── Stage 5: File Appeal (Wallet A — Student) ──')
   const hash5 = await writeContract(WALLET_A, 'file_appeal', [
@@ -240,6 +249,15 @@ async function main() {
   log(`  appeal reasoning:  ${c6.final_judgment.reasoning.slice(0, 200)}…`)
   log(`  finalized_at: ${new Date(c6.finalized_at * 1000).toISOString()}`)
   await logConsensus(hash6)
+
+  // ── Stage 6b: Record appeal tx hash on-chain ───────────────────────────────
+  log('\n── Stage 6b: Record appeal tx hash on-chain (Wallet A) ──')
+  const hash6b = await writeContract(WALLET_A, 'record_appeal_tx', [caseId, hash6])
+  await waitFinalized(WALLET_A, hash6b)
+  const c6b = JSON.parse(await readContract('get_case', [caseId]))
+  log(`  appeal_tx_hash on-chain: ${c6b.appeal_tx_hash}`)
+  if (c6b.appeal_tx_hash !== hash6.toLowerCase()) throw new Error('appeal_tx_hash mismatch!')
+  log('  ✓ on-chain appeal hash matches submitted tx')
 
   // ── Summary ────────────────────────────────────────────────────────────────
   log('\n═══════════════════════════════════')
