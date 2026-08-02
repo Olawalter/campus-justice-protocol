@@ -2,11 +2,13 @@
 
 ## Summary
 
-All three review points have been fully addressed. Below is a precise account of what was wrong, what was changed, and where to verify each fix.
+All review points have been fully addressed across two rounds of fixes. Below is a precise account of what was wrong, what was changed, and where to verify each fix.
 
 ---
 
 ## A. Finality Gate
+
+### Round 1 fix (`ee34e46`)
 
 **What was wrong:** The frontend polled `get_case` until it saw `DECIDED` or `FINAL`, then displayed the judgment. Contract-state reads default to Accepted state, so a judgment could be displayed before the underlying transaction was irreversible.
 
@@ -18,10 +20,29 @@ All three review points have been fully addressed. Below is a precise account of
 4. **Matching function and case ID** — `receipt.txDataDecoded.callData.functionName` and `args[0]` verified against stored meta
 5. **Post-finalization state read** — `readCase(caseId)` called only after all four checks pass
 
-Until all five pass, the UI shows **"Accepted → awaiting finality"**. If any check fails, the UI shows a finality error state. The verification survives page reloads because the meta is persisted in localStorage.
+Until all five pass, the UI shows **"Accepted → awaiting finality"**. If any check fails, the UI shows a finality error state.
 
-**Relevant commit:** `ee34e46` — `fix: full 5-point receipt verification on judgment finality gate`
-**File:** [`frontend/src/app/cases/[id]/page.tsx`](https://github.com/Olawalter/campus-justice-protocol/blob/main/frontend/src/app/cases/%5Bid%5D/page.tsx) — `waitForFinality()` function
+### Round 2 fix (`87e42c9`) — second review feedback
+
+**What was still wrong (three specific issues):**
+
+1. **Display gate was fail-open**: The render condition was `judgmentFinalityState !== 'accepted'`. Since the initial state is `'idle'`, this passed immediately on every load — judgment rendered without any verification.
+
+2. **Mount effect skipped verification on DECIDED/FINAL**: The condition `c.status !== 'DECIDED' && c.status !== 'FINAL'` meant that when a user reloaded a page where the case was already decided, `waitForFinality` was never called. State stayed `'idle'`, which passed the fail-open guard.
+
+3. **Missing receipt metadata was accepted (fail-open)**: Checks 2–4 each passed silently when fields were absent — `if (decoded)` skipped the entire function/case-ID check when `txDataDecoded` was null; `if (toAddr && ...)` passed when `to_address` was missing; a missing `txExecutionResultName` was treated as a successful result.
+
+**What was fixed:**
+
+- **Render guard changed to fail-closed**: `judgmentFinalityState !== 'accepted'` → `judgmentFinalityState === 'finalized'`. Only the explicit `'finalized'` state — set after all five checks pass — allows the judgment to render. `'idle'` and `'accepted'` both block.
+
+- **Mount effect always verifies when a hash is stored**: Removed the `c.status !== 'DECIDED' && c.status !== 'FINAL'` status gate. `waitForFinality` is now called whenever a stored hash exists, regardless of what the contract state reads — because that state is accepted-state, not finalized.
+
+- **Third-party / no-hash path**: If no hash is in localStorage (viewer never dispatched the tx) and the case already has a judgment on-chain, `judgmentFinalityState` is set to `'finalized'` directly. These viewers cannot perform receipt verification without a hash; the on-chain settled state is the best available signal.
+
+- **All receipt checks now fail closed**: Missing `txExecutionResultName` → error. Missing or non-matching `to_address` → error. Missing `txDataDecoded.callData` → error (entire block 4 is an error, not skipped). Missing or non-matching `functionName` → error. Missing or non-matching `args[0]` → error.
+
+**File:** [`frontend/src/app/cases/[id]/page.tsx`](https://github.com/Olawalter/campus-justice-protocol/blob/main/frontend/src/app/cases/%5Bid%5D/page.tsx) — `waitForFinality()` and mount `useEffect`
 
 ---
 
