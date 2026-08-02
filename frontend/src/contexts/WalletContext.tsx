@@ -19,6 +19,8 @@ interface WalletContextValue {
   requestJudgment: (caseId: string) => Promise<string>
   fileAppeal: (caseId: string, grounds: string) => Promise<string>
   requestAppealJudgment: (caseId: string) => Promise<string>
+  recordJudgmentTx: (caseId: string, txHash: string) => Promise<string>
+  recordAppealTx: (caseId: string, txHash: string) => Promise<string>
   txPending: boolean
   txHash: string | null
 }
@@ -184,6 +186,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const requestAppealJudgment = async (caseId: string) =>
     writeContract('request_appeal_judgment', [caseId], false)
 
+  // Record verified tx hashes on-chain so any viewer can independently verify
+  const recordJudgmentTx = async (caseId: string, txHash: string) =>
+    writeContract('record_judgment_tx', [caseId, txHash])
+
+  const recordAppealTx = async (caseId: string, txHash: string) =>
+    writeContract('record_appeal_tx', [caseId, txHash])
+
   return (
     <WalletContext.Provider value={{
       address,
@@ -198,6 +207,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       requestJudgment,
       fileAppeal,
       requestAppealJudgment,
+      recordJudgmentTx,
+      recordAppealTx,
       txPending,
       txHash,
     }}>

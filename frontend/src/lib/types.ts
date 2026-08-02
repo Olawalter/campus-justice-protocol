@@ -57,8 +57,10 @@ export interface Case {
   respondent_evidence: EvidenceItem[]
   response_text: string
   judgment: Judgment | null
+  judgment_tx_hash: string | null
   appeal: Appeal | null
   final_judgment: Judgment | null
+  appeal_tx_hash: string | null
 }
 
 export interface Stats {
