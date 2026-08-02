@@ -48,6 +48,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     address, connected,
     requestJudgment, submitResponse,
     fileAppeal, requestAppealJudgment,
+    recordJudgmentTx, recordAppealTx,
     txPending,
   } = useWallet()
 
@@ -76,12 +77,12 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [id])
 
-  // On mount: resume finality wait if a judgment tx hash is in localStorage.
-  // Always verify when a hash is stored — never skip because contract state
-  // already shows DECIDED/FINAL (that is accepted state, not finalized).
-  // If no hash is stored (third-party viewer / localStorage cleared) and the
-  // case already has a judgment on-chain, set finalized directly — we have no
-  // hash to verify, so the on-chain settled state is the best signal available.
+  // On mount: find the best available tx hash and run full receipt verification
+  // before allowing any judgment to render. Priority:
+  //   1. localStorage (this browser dispatched the tx this session / previously)
+  //   2. case.judgment_tx_hash / case.appeal_tx_hash (recorded on-chain by the
+  //      dispatcher after their own verification — any viewer can use this)
+  // If neither exists the judgment stays hidden (state remains 'idle').
   useEffect(() => {
     if (typeof window === 'undefined') return
     const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
@@ -91,30 +92,41 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       if (!c) return
       setCaseData(c)
 
-      if (judgmentRaw) {
-        try {
-          const meta: StoredJudgmentMeta = JSON.parse(judgmentRaw)
-          waitForFinality(meta, 'judgment')
-        } catch { /* legacy plain-hash entry — no hash to verify */ }
-      } else if (c.judgment) {
-        // No stored hash: viewer never dispatched this tx. The judgment exists
-        // on-chain; mark finalized so it renders for read-only visitors.
-        setJudgmentFinalityState('finalized')
+      // Judgment hash — prefer localStorage, fall back to on-chain recorded hash
+      const judgmentHash: string | null = (() => {
+        if (judgmentRaw) {
+          try { return (JSON.parse(judgmentRaw) as StoredJudgmentMeta).hash } catch { return null }
+        }
+        return c.judgment_tx_hash ?? null
+      })()
+      if (judgmentHash) {
+        waitForFinality(
+          { hash: judgmentHash, functionName: 'request_judgment', caseId: id },
+          'judgment',
+        )
       }
+      // If no hash available: judgment stays hidden until one is recorded on-chain
 
-      if (appealRaw) {
-        try {
-          const meta: StoredJudgmentMeta = JSON.parse(appealRaw)
-          waitForFinality(meta, 'appeal')
-        } catch { /* legacy plain-hash entry — no hash to verify */ }
-      } else if (c.final_judgment) {
-        setAppealFinalityState('finalized')
+      // Appeal hash — same priority order
+      const appealHash: string | null = (() => {
+        if (appealRaw) {
+          try { return (JSON.parse(appealRaw) as StoredJudgmentMeta).hash } catch { return null }
+        }
+        return c.appeal_tx_hash ?? null
+      })()
+      if (appealHash) {
+        waitForFinality(
+          { hash: appealHash, functionName: 'request_appeal_judgment', caseId: id },
+          'appeal',
+        )
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  function waitForFinality(meta: StoredJudgmentMeta, kind: 'judgment' | 'appeal') {
+  // record=true when this browser dispatched the tx — after verification passes,
+  // the hash is written on-chain so any viewer on any device can verify it too.
+  function waitForFinality(meta: StoredJudgmentMeta, kind: 'judgment' | 'appeal', record = false) {
     if (finalityAbortRef.current) finalityAbortRef.current.abort()
     const abort = new AbortController()
     finalityAbortRef.current = abort
@@ -157,6 +169,12 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       // 5. Post-finalization state read
       const fresh = await readCase(id)
       if (fresh && !abort.signal.aborted) setCaseData(fresh)
+      // Record the verified hash on-chain so any viewer on any device can
+      // retrieve it and run the same 5-point verification independently.
+      if (record) {
+        const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
+        recordFn(id, meta.hash).catch(() => { /* best-effort — non-blocking */ })
+      }
     }).catch(() => {
       if (!abort.signal.aborted) setState('error')
     })
@@ -179,7 +197,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         const fnName = isAppealJudgment ? 'request_appeal_judgment' : 'request_judgment'
         const meta: StoredJudgmentMeta = { hash, functionName: fnName, caseId: id }
         if (typeof window !== 'undefined') localStorage.setItem(key, JSON.stringify(meta))
-        waitForFinality(meta, isJudgment ? 'judgment' : 'appeal')
+        waitForFinality(meta, isJudgment ? 'judgment' : 'appeal', true)
       } else {
         await load()
       }
