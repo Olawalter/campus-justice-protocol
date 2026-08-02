@@ -227,6 +227,28 @@ E2e test run on 2026-08-02 against `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`:
 
 | Case | Judgment | `judgment_tx_hash` on-chain |
 |------|----------|-----------------------------|
-| [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | INCONCLUSIVE (0.78) | `0x5a8781b084a822c20e0a1cbbc858b6c2c005464467022ce0abd9b720cabd20ac` |
+| [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) | INCONCLUSIVE (0.78) | `0x5a8781b084a822c20e0a1cbbc858b6c2c005464467022ce0abd9b720cabd20ac` | INCONCLUSIVE (0.95) | `0x8b51701f8ee84393a33143b39ffe61227f6c4d140882dfe968b1af7493fa173e` |
 
-Verified manually: `status: FINALIZED`, `leader_receipt.execution_result: SUCCESS`, `result_name: MAJORITY_AGREE`. Any viewer loading the case page on the deployed app hits the full 5-point verification before judgment renders.
+Receipt verification ran against both tx hashes using `fullTransaction: true` (the same code path as the deployed `waitForFinality`):
+
+```
+=== JUDGMENT tx ===
+  ✓ 1. statusName === FINALIZED: FINALIZED
+  ✓ 2. execution_result OK: SUCCESS
+  ✓ 3. to_address matches: 0xDd35E4b67f54A9da54d56775E6af7CE801971d92
+  ✓ 4a. calldata.method === request_judgment: request_judgment
+  ✓ 4b. calldata.args[0] === CJP-000001: CJP-000001
+  --> PASS: waitForFinality would set state = "finalized"
+
+=== APPEAL tx ===
+  ✓ 1. statusName === FINALIZED: FINALIZED
+  ✓ 2. execution_result OK: SUCCESS
+  ✓ 3. to_address matches: 0xDd35E4b67f54A9da54d56775E6af7CE801971d92
+  ✓ 4a. calldata.method === request_appeal_judgment: request_appeal_judgment
+  ✓ 4b. calldata.args[0] === CJP-000001: CJP-000001
+  --> PASS: waitForFinality would set state = "finalized"
+
+✓ ALL RECEIPT CHECKS PASS
+```
+
+Both `judgment_tx_hash` and `appeal_tx_hash` are stored on-chain. Any viewer on any device loading [campusjp.vercel.app/cases/CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) retrieves these hashes from `get_case`, runs the full 5-point verification via `waitForTransactionReceipt({fullTransaction:true})`, and only sets state `'finalized'` (allowing judgment to render) after all checks pass.
