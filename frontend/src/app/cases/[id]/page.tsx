@@ -76,7 +76,12 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [id])
 
-  // On mount: resume finality wait if a judgment tx hash is in localStorage
+  // On mount: resume finality wait if a judgment tx hash is in localStorage.
+  // Always verify when a hash is stored — never skip because contract state
+  // already shows DECIDED/FINAL (that is accepted state, not finalized).
+  // If no hash is stored (third-party viewer / localStorage cleared) and the
+  // case already has a judgment on-chain, set finalized directly — we have no
+  // hash to verify, so the on-chain settled state is the best signal available.
   useEffect(() => {
     if (typeof window === 'undefined') return
     const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
@@ -85,17 +90,25 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     readCase(id).then(c => {
       if (!c) return
       setCaseData(c)
-      if (c.status !== 'DECIDED' && c.status !== 'FINAL' && judgmentRaw) {
+
+      if (judgmentRaw) {
         try {
           const meta: StoredJudgmentMeta = JSON.parse(judgmentRaw)
           waitForFinality(meta, 'judgment')
-        } catch { /* legacy plain-hash entry */ }
+        } catch { /* legacy plain-hash entry — no hash to verify */ }
+      } else if (c.judgment) {
+        // No stored hash: viewer never dispatched this tx. The judgment exists
+        // on-chain; mark finalized so it renders for read-only visitors.
+        setJudgmentFinalityState('finalized')
       }
-      if (c.status === 'APPEALED' && appealRaw) {
+
+      if (appealRaw) {
         try {
           const meta: StoredJudgmentMeta = JSON.parse(appealRaw)
           waitForFinality(meta, 'appeal')
-        } catch { /* legacy plain-hash entry */ }
+        } catch { /* legacy plain-hash entry — no hash to verify */ }
+      } else if (c.final_judgment) {
+        setAppealFinalityState('finalized')
       }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,28 +133,24 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     }).then(async (receipt: any) => {
       if (abort.signal.aborted) return
 
-      // ── 5-point receipt verification (team requirement) ───────────────────
-      // 2. Successful execution result
+      // ── 5-point receipt verification — fail closed on any missing field ──
+      // 2. Execution result must be present and not an error
       const execResult: string = receipt.txExecutionResultName ?? ''
-      if (execResult === 'FINISHED_WITH_ERROR') {
-        setState('error')
-        return
+      if (!execResult || execResult === 'FINISHED_WITH_ERROR') {
+        setState('error'); return
       }
-      // 3. Matching contract address
+      // 3. Contract address must match — missing field is an error
       const toAddr: string = receipt.to_address ?? receipt.to ?? ''
-      if (toAddr && toAddr.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
-        setState('error')
-        return
+      if (!toAddr || toAddr.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
+        setState('error'); return
       }
-      // 4. Matching function name and case ID from stored meta
+      // 4. Decoded call data must be present and match stored function + case ID
       const decoded = receipt.txDataDecoded?.callData
-      if (decoded) {
-        const fn: string = decoded.functionName ?? decoded.function ?? ''
-        if (fn && fn !== meta.functionName) { setState('error'); return }
-        const args: unknown[] = decoded.args ?? decoded.arguments ?? []
-        const caseIdArg = args[0]
-        if (caseIdArg && String(caseIdArg) !== meta.caseId) { setState('error'); return }
-      }
+      if (!decoded) { setState('error'); return }
+      const fn: string = decoded.functionName ?? decoded.function ?? ''
+      if (!fn || fn !== meta.functionName) { setState('error'); return }
+      const args: unknown[] = decoded.args ?? decoded.arguments ?? []
+      if (!args.length || String(args[0]) !== meta.caseId) { setState('error'); return }
       // ── end verification ──────────────────────────────────────────────────
 
       setState('finalized')
@@ -283,14 +292,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Judgments — shown only after FINALIZED */}
-      {c.judgment && judgmentFinalityState !== 'accepted' && (
+      {/* Judgments — only rendered after full 5-point finality verification */}
+      {c.judgment && judgmentFinalityState === 'finalized' && (
         <>
           <JudgmentPanel judgment={c.judgment} />
           <ValidatorConsensusPanel caseId={c.case_id} />
         </>
       )}
-      {c.final_judgment && appealFinalityState !== 'accepted' && (
+      {c.final_judgment && appealFinalityState === 'finalized' && (
         <>
           <JudgmentPanel judgment={c.final_judgment} isAppeal />
           <ValidatorConsensusPanel caseId={c.case_id} isAppeal />
