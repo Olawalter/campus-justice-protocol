@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
-import { Case } from '@/lib/types'
+import { Case, Judgment } from '@/lib/types'
 import { readCase } from '@/lib/genlayer'
 import { verifyJudgmentFinality, FinalityMeta } from '@/lib/finality'
 import { useWallet } from '@/contexts/WalletContext'
@@ -59,6 +59,11 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // ValidatorConsensusPanel so it never reads an unverified hash from localStorage.
   const [judgmentTxHash, setJudgmentTxHash] = useState<string | null>(null)
   const [appealTxHash, setAppealTxHash] = useState<string | null>(null)
+  // Verified judgment data — set ONLY by verifyJudgmentFinality on ok:true.
+  // Never sourced from caseData directly, so subsequent load() calls cannot
+  // overwrite post-finalization data or expose accepted-state results.
+  const [verifiedJudgment, setVerifiedJudgment] = useState<Judgment | null>(null)
+  const [verifiedAppealJudgment, setVerifiedAppealJudgment] = useState<Judgment | null>(null)
   const judgmentAbortRef = useRef<AbortController | null>(null)
   const appealAbortRef = useRef<AbortController | null>(null)
 
@@ -88,7 +93,6 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
 
     readCase(id).then(c => {
       if (!c) return
-      setCaseData(c)
 
       // Judgment hash — prefer localStorage, fall back to on-chain recorded hash
       const judgmentHash: string | null = (() => {
@@ -146,16 +150,19 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           return
         }
 
-        // result.caseData is the post-finalization fresh read that confirmed
-        // DECIDED/FINAL status and a populated judgment field. Set it before
-        // opening the render gate so the UI never shows stale accepted-state data.
+        // result.caseData is the post-finalization fresh read from verifyJudgmentFinality
+        // Step 5 — it confirmed DECIDED/FINAL status and a populated judgment field.
+        // Store the judgment content in dedicated verified state so that subsequent
+        // load() calls can never overwrite it with accepted-state contract reads.
         setCaseData(result.caseData)
+        if (kind === 'judgment') {
+          setVerifiedJudgment(result.caseData.judgment)
+          setJudgmentTxHash(meta.hash)
+        } else {
+          setVerifiedAppealJudgment(result.caseData.final_judgment)
+          setAppealTxHash(meta.hash)
+        }
         setState('finalized')
-
-        // Expose the verified hash to ValidatorConsensusPanel so it never needs
-        // to re-parse localStorage independently.
-        if (kind === 'judgment') setJudgmentTxHash(meta.hash)
-        else setAppealTxHash(meta.hash)
 
         // Record the verified hash on-chain so any viewer on any device can
         // retrieve it and run the same verification independently.
@@ -303,15 +310,15 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       )}
 
       {/* Judgments — only rendered after full 5-point finality verification */}
-      {c.judgment && judgmentFinalityState === 'finalized' && (
+      {verifiedJudgment && judgmentFinalityState === 'finalized' && (
         <>
-          <JudgmentPanel judgment={c.judgment} />
+          <JudgmentPanel judgment={verifiedJudgment} />
           {judgmentTxHash && <ValidatorConsensusPanel txHash={judgmentTxHash} />}
         </>
       )}
-      {c.final_judgment && appealFinalityState === 'finalized' && (
+      {verifiedAppealJudgment && appealFinalityState === 'finalized' && (
         <>
-          <JudgmentPanel judgment={c.final_judgment} isAppeal />
+          <JudgmentPanel judgment={verifiedAppealJudgment} isAppeal />
           {appealTxHash && <ValidatorConsensusPanel txHash={appealTxHash} isAppeal />}
         </>
       )}
