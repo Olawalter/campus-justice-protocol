@@ -59,7 +59,8 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // ValidatorConsensusPanel so it never reads an unverified hash from localStorage.
   const [judgmentTxHash, setJudgmentTxHash] = useState<string | null>(null)
   const [appealTxHash, setAppealTxHash] = useState<string | null>(null)
-  const finalityAbortRef = useRef<AbortController | null>(null)
+  const judgmentAbortRef = useRef<AbortController | null>(null)
+  const appealAbortRef = useRef<AbortController | null>(null)
 
   async function load() {
     setLoading(true)
@@ -127,9 +128,10 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // All receipt verification is delegated to verifyJudgmentFinality (lib/finality.ts)
   // which is the single authoritative check used by every judgment display path.
   function waitForFinality(meta: StoredJudgmentMeta, kind: 'judgment' | 'appeal', record = false) {
-    if (finalityAbortRef.current) finalityAbortRef.current.abort()
+    const abortRef = kind === 'judgment' ? judgmentAbortRef : appealAbortRef
+    if (abortRef.current) abortRef.current.abort()
     const abort = new AbortController()
-    finalityAbortRef.current = abort
+    abortRef.current = abort
 
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
     setState('accepted')
@@ -168,7 +170,10 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   useEffect(() => {
-    return () => { finalityAbortRef.current?.abort() }
+    return () => {
+      judgmentAbortRef.current?.abort()
+      appealAbortRef.current?.abort()
+    }
   }, [])
 
   async function doAction(action: string, fn: () => Promise<string>) {
@@ -475,9 +480,21 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
           <button
-            onClick={async () => {
-              const fresh = await readCase(id)
-              if (fresh) setCaseData(fresh)
+            onClick={() => {
+              const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
+              const appealRaw = localStorage.getItem(`cjp_appeal_tx_${id}`)
+              if (awaitingJudgment && judgmentRaw) {
+                try {
+                  const meta = JSON.parse(judgmentRaw) as StoredJudgmentMeta
+                  waitForFinality(meta, 'judgment')
+                } catch { /* ignore */ }
+              }
+              if (awaitingAppealJudgment && appealRaw) {
+                try {
+                  const meta = JSON.parse(appealRaw) as StoredJudgmentMeta
+                  waitForFinality(meta, 'appeal')
+                } catch { /* ignore */ }
+              }
             }}
             className="text-xs px-3 py-1.5 rounded-lg"
             style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}
