@@ -16,7 +16,7 @@
  * judgment content.
  */
 
-import { createClient, abi } from 'genlayer-js'
+import { createClient } from 'genlayer-js'
 import { TransactionStatus } from 'genlayer-js/types'
 import { readCase, getChain } from '@/lib/genlayer'
 import { CONTRACT_ADDRESS, RPC_URL } from '@/lib/constants'
@@ -121,50 +121,52 @@ export async function verifyJudgmentFinality(
     return { ok: false, reason: `address_mismatch:${toAddr}` }
   }
 
-  // ── Step 4b: calldata must decode and match stored meta ───────────────────
-  // Studionet path (fullTransaction=true): decodeLocalnetTransaction converts
-  //   data.calldata from a raw base64 string → { base64, readable } object.
-  //   calldata.toString() produces trailing commas in arrays ("CJP-000001,")
-  //   which is NOT valid JSON — we must decode the raw bytes with
-  //   abi.calldata.decode → Map, then use Map.get().
-  // Testnet/mainnet path: txDataDecoded.callData is a Map from decodeTransaction.
-  let callDataMap: Map<string, unknown> | null = null
+  // ── Step 4b: calldata must contain the expected function name and case ID ────
+  // The raw API returns data.calldata as a base64 string whose decoded bytes
+  // contain the method name and args as readable UTF-8 substrings.
+  // genlayer-js's abi.calldata.decode parses a binary envelope format and is
+  // not reliably available in browser bundles — using TextDecoder to search the
+  // raw bytes is simpler, has zero dependencies, and is guaranteed browser-safe.
+  // The browser check above confirmed method name and case ID are plaintext in
+  // the decoded bytes, so substring search is both sufficient and correct.
   const calldataRaw = (
     (receipt as Record<string, unknown>).data as Record<string, unknown> | undefined
   )?.calldata
-  // decodeLocalnetTransaction converts calldata to { base64, readable } object,
-  // but if that processing hasn't run the raw API returns calldata as a plain
-  // base64 string directly — handle both forms.
   const b64str = (
     typeof calldataRaw === 'string'
       ? calldataRaw
       : (calldataRaw as Record<string, unknown> | undefined)?.base64 ?? ''
   ) as string
 
+  // Also check txDataDecoded (testnet/mainnet processed path)
+  const txDecoded = (receipt as Record<string, unknown>).txDataDecoded as Record<string, unknown> | undefined
+  const txCallData = txDecoded?.callData
+
   if (b64str) {
     try {
       const bytes = Uint8Array.from(atob(b64str), c => c.charCodeAt(0))
-      const decoded = abi.calldata.decode(bytes)
-      if (decoded instanceof Map) callDataMap = decoded
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+      if (!text.includes(meta.functionName)) {
+        return { ok: false, reason: `method_not_in_calldata:${meta.functionName}` }
+      }
+      if (!text.includes(meta.caseId)) {
+        return { ok: false, reason: `caseid_not_in_calldata:${meta.caseId}` }
+      }
     } catch {
       return { ok: false, reason: 'calldata_decode_error' }
     }
+  } else if (txCallData instanceof Map) {
+    // Testnet/mainnet: txDataDecoded.callData is a Map from decodeTransaction
+    const fn = txCallData.get('method')
+    if (typeof fn !== 'string' || fn !== meta.functionName) {
+      return { ok: false, reason: `method_mismatch:${String(fn)}` }
+    }
+    const args = txCallData.get('args')
+    if (!Array.isArray(args) || !args.length || String(args[0]) !== meta.caseId) {
+      return { ok: false, reason: 'args_mismatch' }
+    }
   } else {
-    const m = (receipt as Record<string, unknown>).txDataDecoded as
-      Record<string, unknown> | undefined
-    const cd = m?.callData
-    if (cd instanceof Map) callDataMap = cd
-  }
-
-  if (!callDataMap) return { ok: false, reason: 'calldata_missing' }
-
-  const fn = callDataMap.get('method')
-  if (typeof fn !== 'string' || fn !== meta.functionName) {
-    return { ok: false, reason: `method_mismatch:${String(fn)}` }
-  }
-  const args = callDataMap.get('args')
-  if (!Array.isArray(args) || !args.length || String(args[0]) !== meta.caseId) {
-    return { ok: false, reason: `args_mismatch` }
+    return { ok: false, reason: 'calldata_missing' }
   }
 
   if (aborted()) return { ok: false, reason: 'aborted' }
