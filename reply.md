@@ -252,3 +252,93 @@ Receipt verification ran against both tx hashes using `fullTransaction: true` (t
 ```
 
 Both `judgment_tx_hash` and `appeal_tx_hash` are stored on-chain. Any viewer on any device loading [campusjp.vercel.app/cases/CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) retrieves these hashes from `get_case`, runs the full 5-point verification via `waitForTransactionReceipt({fullTransaction:true})`, and only sets state `'finalized'` (allowing judgment to render) after all checks pass.
+
+---
+
+## F. Full Codebase Audit — Fail-Closed Across Every Display Path (Round 5)
+
+### What the full audit found
+
+After the Round 4 receipt field fixes, a complete audit of every code path that renders or returns judgment data found three remaining issues:
+
+**1. `CaseCard.tsx` — judgment content from accepted state on list page**
+
+`CaseCard` showed `OutcomeBadge` and confidence purely when `status === 'DECIDED' || status === 'FINAL'`. This is contract accepted-state (optimistic read) — no receipt verification had occurred. Any viewer navigating to `/cases` saw judgment outcomes without any finality check.
+
+**2. `ValidatorConsensusPanel.tsx` — localStorage parse bug (panel never rendered)**
+
+The component read `localStorage.getItem(key)` where the stored value was the full JSON string `{"hash":"0x...","functionName":"request_judgment","caseId":"CJP-000002"}` — not a raw hash. Passing this JSON string to `waitForTransactionReceipt` always failed silently; `data` was never set; the panel never rendered. Independently of the finality check, validators were never shown.
+
+**3. `page.tsx` `ValidatorConsensusPanel` call — passed `caseId` not `txHash`**
+
+The render in `page.tsx` passed `caseId` to `ValidatorConsensusPanel`, which then tried to read localStorage itself (the broken parse path above). The fix to `waitForFinality` was complete, but `ValidatorConsensusPanel` was re-deriving the hash independently and getting it wrong.
+
+### What was fixed (`911a767`)
+
+**`frontend/src/lib/finality.ts` (new file)**
+
+Single authoritative helper encapsulating all 5+1 checks. Every judgment display path calls this function; none render from contract state alone:
+
+```typescript
+export async function verifyJudgmentFinality(
+  meta: FinalityMeta,
+  signal?: AbortSignal,
+): Promise<FinalityResult>
+// Returns { ok: true, caseData: Case } — post-finalization fresh read already done
+// Returns { ok: false, reason: string } — caller must block render
+```
+
+**`frontend/src/app/cases/[id]/page.tsx`**
+
+`waitForFinality` now delegates entirely to `verifyJudgmentFinality`:
+- `setCaseData(result.caseData)` fires **before** `setState('finalized')` so the gate opens with verified data already in place
+- `judgmentTxHash` / `appealTxHash` state set only after verification passes
+- `ValidatorConsensusPanel` receives `txHash` prop directly — no re-parse of localStorage
+
+```tsx
+{c.judgment && judgmentFinalityState === 'finalized' && (
+  <>
+    <JudgmentPanel judgment={c.judgment} />
+    {judgmentTxHash && <ValidatorConsensusPanel txHash={judgmentTxHash} />}
+  </>
+)}
+```
+
+**`frontend/src/components/cases/ValidatorConsensusPanel.tsx`**
+
+Prop changed from `{ caseId: string; isAppeal?: boolean }` to `{ txHash: string; isAppeal?: boolean }`. The `localStorage.getItem` call is removed entirely. The component uses the verified hash passed from page.tsx directly:
+
+```typescript
+// Before (broken): read JSON string from localStorage, pass to waitForTransactionReceipt
+const txHash = localStorage.getItem(key) // '{"hash":"0x..."}' — fails silently
+
+// After: txHash is a verified raw hash from page.tsx after verifyJudgmentFinality passes
+export function ValidatorConsensusPanel({ txHash, isAppeal = false }: { txHash: string; isAppeal?: boolean })
+```
+
+**`frontend/src/components/cases/CaseCard.tsx`**
+
+`OutcomeBadge` and confidence span removed. Judgment content is never shown on the list page. The `StatusBadge` (DECIDED/FINAL) communicates case state without exposing unverified judgment data:
+
+```tsx
+// Removed:
+{hasJudgment && c.judgment?.outcome && <OutcomeBadge outcome={c.judgment.outcome} />}
+{hasJudgment && c.judgment?.confidence != null && (
+  <span>{Math.round(c.judgment.confidence * 100)}% confidence</span>
+)}
+```
+
+### Every judgment rendering path — final state
+
+| Path | Before | After |
+|------|--------|-------|
+| `/cases` list — `CaseCard` | Shows outcome + confidence from accepted state | Status badge only; no judgment content |
+| `/cases/[id]` — `JudgmentPanel` | Rendered when `judgmentFinalityState === 'finalized'` | Same gate; `setCaseData` now uses verified `result.caseData` (not stale state) |
+| `/cases/[id]` — `ValidatorConsensusPanel` | Read broken JSON from localStorage; never rendered | Receives verified `txHash` prop; renders correctly |
+| Mount effect — third-party viewer | Same (uses on-chain hash via `verifyJudgmentFinality`) | No change — already correct from Round 3/4 |
+
+### No remaining paths
+
+Searched all TSX/TS files for references to `judgment`, `final_judgment`, `OutcomeBadge`, and `cjp_judgment_tx_` / `cjp_appeal_tx_`. No other component reads or renders judgment data.
+
+**Commit:** `911a767`
