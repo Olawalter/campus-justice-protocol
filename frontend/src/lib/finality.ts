@@ -19,7 +19,7 @@
 import { createClient, abi } from 'genlayer-js'
 import { TransactionStatus } from 'genlayer-js/types'
 import { readCase, getChain } from '@/lib/genlayer'
-import { CONTRACT_ADDRESS } from '@/lib/constants'
+import { CONTRACT_ADDRESS, RPC_URL } from '@/lib/constants'
 import type { Case } from '@/lib/types'
 
 export interface FinalityMeta {
@@ -42,21 +42,41 @@ export async function verifyJudgmentFinality(
   const aborted = () => signal?.aborted ?? false
 
   // ── Step 1: fetch receipt with all raw fields intact ──────────────────────
-  // fullTransaction: true bypasses simplifyTransactionReceipt, which would
-  // strip JS Map values and omit studionet-specific fields like
-  // consensus_data.leader_receipt[*].execution_result and data.calldata.base64.
+  // Strategy: try a direct eth_getTransactionByHash fetch first (no timers, no
+  // retries). If the tx is already FINALIZED this resolves immediately and avoids
+  // genlayer-js's waitForTransactionReceipt polling loop, which uses setInterval
+  // and is severely throttled by the browser when the tab is in the background
+  // (Chrome reduces timer frequency to ~1/min for background tabs, turning a
+  // 10-minute wait into hours). Fall back to waitForTransactionReceipt only if
+  // the direct fetch fails or returns a non-FINALIZED status.
   let receipt: Record<string, unknown>
   try {
-    const client = createClient({ chain: getChain() })
-    receipt = await (client as unknown as {
-      waitForTransactionReceipt: (args: Record<string, unknown>) => Promise<Record<string, unknown>>
-    }).waitForTransactionReceipt({
-      hash: meta.hash,
-      status: TransactionStatus.FINALIZED,
-      retries: 120,
-      interval: 5000,
-      fullTransaction: true,
+    const directRes = await fetch(RPC_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        method: 'eth_getTransactionByHash',
+        params: [meta.hash],
+      }),
     })
+    const directJson = await directRes.json() as { result?: Record<string, unknown> }
+    const directReceipt = directJson.result
+    if (directReceipt && (directReceipt.status === 'FINALIZED' || directReceipt.statusName === 'FINALIZED' || directReceipt.status_name === 'FINALIZED')) {
+      receipt = directReceipt
+    } else {
+      // Not yet FINALIZED — fall back to polling via genlayer-js
+      const client = createClient({ chain: getChain() })
+      receipt = await (client as unknown as {
+        waitForTransactionReceipt: (args: Record<string, unknown>) => Promise<Record<string, unknown>>
+      }).waitForTransactionReceipt({
+        hash: meta.hash,
+        status: TransactionStatus.FINALIZED,
+        retries: 120,
+        interval: 5000,
+        fullTransaction: true,
+      })
+    }
   } catch {
     return { ok: false, reason: 'receipt_fetch_failed' }
   }
