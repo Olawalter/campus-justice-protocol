@@ -2,12 +2,9 @@
 
 import { use, useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
-import { createClient, abi } from 'genlayer-js'
-import { studionet } from 'genlayer-js/chains'
-import { TransactionStatus } from 'genlayer-js/types'
 import { Case } from '@/lib/types'
 import { readCase } from '@/lib/genlayer'
-import { CONTRACT_ADDRESS } from '@/lib/constants'
+import { verifyJudgmentFinality, FinalityMeta } from '@/lib/finality'
 import { useWallet } from '@/contexts/WalletContext'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JudgmentPanel } from '@/components/cases/JudgmentPanel'
@@ -17,12 +14,8 @@ import { CASE_TYPE_META } from '@/lib/constants'
 
 type FinalityState = 'idle' | 'accepted' | 'finalized' | 'error'
 
-// Stored alongside each judgment tx hash so we can verify the receipt on return
-interface StoredJudgmentMeta {
-  hash: string
-  functionName: string
-  caseId: string
-}
+// Re-exported from lib/finality so localStorage writes and reads use the same shape
+type StoredJudgmentMeta = FinalityMeta
 
 function DeadlineChip({ label, deadline }: { label: string; deadline: number | null }) {
   if (!deadline) return null
@@ -59,9 +52,13 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const [activeAction, setActiveAction] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // Finality tracking for judgment transactions
+  // Finality tracking — never 'finalized' until verifyJudgmentFinality passes all checks
   const [judgmentFinalityState, setJudgmentFinalityState] = useState<FinalityState>('idle')
   const [appealFinalityState, setAppealFinalityState] = useState<FinalityState>('idle')
+  // Verified tx hashes — set only after verifyJudgmentFinality succeeds; passed to
+  // ValidatorConsensusPanel so it never reads an unverified hash from localStorage.
+  const [judgmentTxHash, setJudgmentTxHash] = useState<string | null>(null)
+  const [appealTxHash, setAppealTxHash] = useState<string | null>(null)
   const finalityAbortRef = useRef<AbortController | null>(null)
 
   async function load() {
@@ -126,6 +123,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
 
   // record=true when this browser dispatched the tx — after verification passes,
   // the hash is written on-chain so any viewer on any device can verify it too.
+  //
+  // All receipt verification is delegated to verifyJudgmentFinality (lib/finality.ts)
+  // which is the single authoritative check used by every judgment display path.
   function waitForFinality(meta: StoredJudgmentMeta, kind: 'judgment' | 'appeal', record = false) {
     if (finalityAbortRef.current) finalityAbortRef.current.abort()
     const abort = new AbortController()
@@ -134,91 +134,37 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
     setState('accepted')
 
-    const glClient = createClient({ chain: studionet })
-    // fullTransaction: true — bypasses simplifyTransactionReceipt so all raw fields
-    // (statusName, consensus_data, data.calldata) are preserved exactly as returned
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(glClient as any).waitForTransactionReceipt({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      hash: meta.hash as any,
-      status: TransactionStatus.FINALIZED,
-      retries: 120,
-      interval: 5000,
-      fullTransaction: true,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }).then(async (receipt: any) => {
-      if (abort.signal.aborted) return
+    verifyJudgmentFinality(meta, abort.signal)
+      .then(result => {
+        if (abort.signal.aborted) return
+        if (!result.ok) {
+          // Any failed check — missing field, mismatch, network error, stale contract
+          // read — lands here. Never render the judgment in this state.
+          setState('error')
+          return
+        }
 
-      // ── 5-point receipt verification — every check is fail-closed ────────
+        // result.caseData is the post-finalization fresh read that confirmed
+        // DECIDED/FINAL status and a populated judgment field. Set it before
+        // opening the render gate so the UI never shows stale accepted-state data.
+        setCaseData(result.caseData)
+        setState('finalized')
 
-      // 1. Status must be explicitly FINALIZED
-      //    statusName is set by transactionActions.getTransaction (studionet path)
-      //    before decodeLocalnetTransaction runs; status field is numeric after that.
-      const statusName: string = receipt.statusName ?? receipt.status_name ?? ''
-      if (statusName !== 'FINALIZED') { setState('error'); return }
+        // Expose the verified hash to ValidatorConsensusPanel so it never needs
+        // to re-parse localStorage independently.
+        if (kind === 'judgment') setJudgmentTxHash(meta.hash)
+        else setAppealTxHash(meta.hash)
 
-      // 2. Execution must have succeeded
-      //    Studionet: execution_result lives in consensus_data.leader_receipt[0]
-      //    Testnet/mainnet: txExecutionResultName at top level
-      const leaderReceipts = receipt.consensus_data?.leader_receipt
-      const leaderReceipt = Array.isArray(leaderReceipts)
-        ? leaderReceipts[0]
-        : leaderReceipts
-      const execResult: string =
-        receipt.txExecutionResultName ?? leaderReceipt?.execution_result ?? ''
-      // 'SUCCESS' is studionet's value; 'FINISHED_WITH_RETURN' is testnet/mainnet
-      if (execResult !== 'SUCCESS' && execResult !== 'FINISHED_WITH_RETURN') {
-        setState('error'); return
-      }
-
-      // 3. Contract address must match — missing field is an error
-      const toAddr: string = (receipt.to_address ?? receipt.recipient ?? '').toLowerCase()
-      if (!toAddr || toAddr !== CONTRACT_ADDRESS.toLowerCase()) {
-        setState('error'); return
-      }
-
-      // 4. Calldata must match the stored function name and case ID
-      //    Studionet path (fullTransaction=true): decodeLocalnetTransaction converts
-      //      data.calldata from raw base64 string → { base64, readable } object
-      //    Testnet/mainnet path: txDataDecoded.callData is a JS Map (from decodeTransaction)
-      //    calldata.toString() is NOT valid JSON for arrays (trailing commas) — must
-      //    decode raw bytes with abi.calldata.decode, which returns a proper Map.
-      let callDataMap: Map<string, unknown> | null = null
-      const b64: string = receipt.data?.calldata?.base64 ?? ''
-      if (b64) {
-        try {
-          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-          const decoded = abi.calldata.decode(bytes)
-          if (decoded instanceof Map) callDataMap = decoded
-        } catch { setState('error'); return }
-      } else {
-        const m = receipt.txDataDecoded?.callData
-        if (m instanceof Map) callDataMap = m
-      }
-      if (!callDataMap) { setState('error'); return }
-
-      const fn: unknown = callDataMap.get('method')
-      if (typeof fn !== 'string' || fn !== meta.functionName) { setState('error'); return }
-      const args: unknown = callDataMap.get('args')
-      if (!Array.isArray(args) || !args.length || String(args[0]) !== meta.caseId) {
-        setState('error'); return
-      }
-
-      // ── All 4 checks passed ───────────────────────────────────────────────
-
-      setState('finalized')
-      // 5. Post-finalization state read — only after all checks pass
-      const fresh = await readCase(id)
-      if (fresh && !abort.signal.aborted) setCaseData(fresh)
-      // Record the verified hash on-chain so any viewer on any device can
-      // retrieve it and run the same verification independently.
-      if (record) {
-        const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
-        recordFn(id, meta.hash).catch(() => { /* best-effort — non-blocking */ })
-      }
-    }).catch(() => {
-      if (!abort.signal.aborted) setState('error')
-    })
+        // Record the verified hash on-chain so any viewer on any device can
+        // retrieve it and run the same verification independently.
+        if (record) {
+          const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
+          recordFn(meta.caseId, meta.hash).catch(() => { /* best-effort */ })
+        }
+      })
+      .catch(() => {
+        if (!abort.signal.aborted) setState('error')
+      })
   }
 
   useEffect(() => {
@@ -355,13 +301,13 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       {c.judgment && judgmentFinalityState === 'finalized' && (
         <>
           <JudgmentPanel judgment={c.judgment} />
-          <ValidatorConsensusPanel caseId={c.case_id} />
+          {judgmentTxHash && <ValidatorConsensusPanel txHash={judgmentTxHash} />}
         </>
       )}
       {c.final_judgment && appealFinalityState === 'finalized' && (
         <>
           <JudgmentPanel judgment={c.final_judgment} isAppeal />
-          <ValidatorConsensusPanel caseId={c.case_id} isAppeal />
+          {appealTxHash && <ValidatorConsensusPanel txHash={appealTxHash} isAppeal />}
         </>
       )}
 
