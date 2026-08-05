@@ -19,22 +19,19 @@ const VOTE_STYLE: Record<string, { color: string; bg: string; border: string }> 
   timeout:  { color: '#f59e0b', bg: 'rgba(245,158,11,0.08)',  border: 'rgba(245,158,11,0.2)'  },
 }
 
+// txHash is the VERIFIED tx hash passed from page.tsx after verifyJudgmentFinality
+// succeeds — it is never read from localStorage directly (which stores JSON, not raw hash).
 export function ValidatorConsensusPanel({
-  caseId,
+  txHash,
   isAppeal = false,
 }: {
-  caseId: string
+  txHash: string
   isAppeal?: boolean
 }) {
   const [data, setData] = useState<ConsensusData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const key = isAppeal ? `cjp_appeal_tx_${caseId}` : `cjp_judgment_tx_${caseId}`
-    const txHash = localStorage.getItem(key)
-    if (!txHash) { setLoading(false); return }
-
     const c = createClient({ chain: studionet })
     c.waitForTransactionReceipt({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,7 +54,7 @@ export function ValidatorConsensusPanel({
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [caseId, isAppeal])
+  }, [txHash])
 
   if (loading || !data) return null
 

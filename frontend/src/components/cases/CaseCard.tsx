@@ -6,13 +6,12 @@ function formatCreatedAt(createdAt: number | undefined): string {
 }
 import { Case } from '@/lib/types'
 import { CASE_TYPE_META } from '@/lib/constants'
-import { StatusBadge, OutcomeBadge } from '@/components/ui/StatusBadge'
+import { StatusBadge } from '@/components/ui/StatusBadge'
 
 interface CaseCardProps { c: Case }
 
 export function CaseCard({ c }: CaseCardProps) {
   const meta = CASE_TYPE_META[c.case_type] ?? { label: c.case_type, icon: '📄', description: '' }
-  const hasJudgment = c.status === 'DECIDED' || c.status === 'FINAL'
 
   return (
     <Link href={`/cases/${c.case_id}`}>
@@ -36,17 +35,10 @@ export function CaseCard({ c }: CaseCardProps) {
           {c.description}
         </p>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {hasJudgment && c.judgment?.outcome && (
-              <OutcomeBadge outcome={c.judgment.outcome} />
-            )}
-            {hasJudgment && c.judgment?.confidence != null && (
-              <span className="text-xs" style={{ color: 'var(--color-muted)' }}>
-                {Math.round(c.judgment.confidence * 100)}% confidence
-              </span>
-            )}
-          </div>
+        {/* Judgment content is NOT shown here — it is only shown on the detail page
+            after full receipt verification via verifyJudgmentFinality. The status
+            badge above already communicates DECIDED / FINAL state. */}
+        <div className="flex items-center justify-end">
           <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--color-muted)' }}>
             <span className="font-mono">#{c.case_id.slice(-6)}</span>
             <span>{formatCreatedAt(c.created_at)}</span>
