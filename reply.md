@@ -345,7 +345,99 @@ Searched all TSX/TS files for references to `judgment`, `final_judgment`, `Outco
 
 ---
 
-## G. Round 5 Live Evidence — CJP-000003
+## G. Round 6 Fixes — Team Review: "judgment page still displays accepted-state results"
+
+**Team feedback:** *"The judgment page still displays accepted-state results on normal loads and reloads because finality verification is skipped once the read state says DECIDED or FINAL, and missing receipt metadata is accepted. Make every judgment display path fail closed until a successful matching FINALIZED receipt and post-finalization read have been verified."*
+
+Two bugs identified and fixed.
+
+---
+
+### Bug 1 — Shared AbortController caused judgment verification to be silently cancelled by appeal (commit `53185f2`)
+
+**What was wrong:**
+
+`waitForFinality` used a single `finalityAbortRef` for both judgment and appeal. On every page mount, the finality `useEffect` called `waitForFinality` for judgment first, then immediately for appeal. The appeal call executed `finalityAbortRef.current.abort()` before `verifyJudgmentFinality` for judgment had reached its first `await`, so the abort signal was already set when the function began. The direct fetch still completed (no `AbortSignal` was passed to `fetch`), but the `aborted()` check immediately after the try-block returned `{ ok: false, reason: 'aborted' }`. Judgment state was set to `'error'`, never `'finalized'`.
+
+This meant judgment verification **always failed silently on every page load where an appeal hash was also present**. The "Finality check timed out" error panel appeared instead of the judgment.
+
+**What was fixed:**
+
+- Split into two independent refs: `judgmentAbortRef` and `appealAbortRef`
+- Each `waitForFinality` call only aborts its own previous invocation; judgment and appeal run concurrently without interfering
+- **"Check status now" button** was also found to be non-functional: it called `readCase` and set `caseData`, but never re-triggered `verifyJudgmentFinality`. The spinner never cleared regardless of whether the tx had finalized. Fixed: button now re-invokes `waitForFinality` with the stored meta for whichever kind is pending
+
+```typescript
+// Before: one shared ref — appeal aborts judgment
+const finalityAbortRef = useRef<AbortController | null>(null)
+
+// After: independent refs
+const judgmentAbortRef = useRef<AbortController | null>(null)
+const appealAbortRef  = useRef<AbortController | null>(null)
+
+function waitForFinality(meta, kind, record = false) {
+  const abortRef = kind === 'judgment' ? judgmentAbortRef : appealAbortRef
+  if (abortRef.current) abortRef.current.abort()
+  ...
+}
+```
+
+---
+
+### Bug 2 — Judgment rendered from `caseData` which could be overwritten by accepted-state reads (commit `ebde46e`)
+
+**What was wrong:**
+
+The render gate was:
+```tsx
+{c.judgment && judgmentFinalityState === 'finalized' && <JudgmentPanel judgment={c.judgment} />}
+```
+
+`c` is `caseData` from React state. `caseData` is written by three sources:
+1. `load()` — called on mount and after every non-judgment action
+2. The finality `useEffect`'s own `readCase` call (redundant with `load()`)
+3. `verifyJudgmentFinality` Step 5 post-finalization read (the only authoritative source)
+
+After `verifyJudgmentFinality` passed (setting `judgmentFinalityState = 'finalized'`), any subsequent `load()` call (e.g. after filing an appeal, or after clicking "Refresh case") could overwrite `caseData` with a fresh contract read. Since GenLayer writes the judgment to contract state at ACCEPTED (not FINALIZED), that fresh read returned accepted-state judgment data. With `judgmentFinalityState` still `'finalized'` from before, the judgment rendered from the new, unverified read — not from the post-finalization read that `verifyJudgmentFinality` actually confirmed.
+
+Additionally, the finality `useEffect` called `setCaseData(c)` before triggering `waitForFinality`. If anything caused `judgmentFinalityState` to be `'finalized'` while this pre-verification `caseData` was current (e.g. a prior session's state not fully reset), judgment would render from accepted-state data.
+
+**What was fixed:**
+
+- Added dedicated `verifiedJudgment` and `verifiedAppealJudgment` state — set **only** inside `waitForFinality` when `verifyJudgmentFinality` returns `ok: true`, using `result.caseData.judgment` from Step 5
+- Render gates now use these verified fields instead of `caseData`:
+
+```tsx
+// Before — rendered from caseData, which any load() can overwrite
+{c.judgment && judgmentFinalityState === 'finalized' && (
+  <JudgmentPanel judgment={c.judgment} />
+)}
+
+// After — rendered only from data that came through verifyJudgmentFinality Step 5
+{verifiedJudgment && judgmentFinalityState === 'finalized' && (
+  <JudgmentPanel judgment={verifiedJudgment} />
+)}
+```
+
+- Removed the redundant `setCaseData(c)` from the finality `useEffect` — `load()` already handles the initial read; this duplicate write was the mechanism that could expose accepted-state content before verification completed
+
+**Result:** `verifiedJudgment` is `null` until `verifyJudgmentFinality` returns `ok: true`. No `load()` call, no contract read, and no contract status (DECIDED/FINAL) can open the render gate. Missing receipt metadata → `verifyJudgmentFinality` fails → `verifiedJudgment` stays `null` → no display.
+
+### Every judgment rendering path — final state after Round 6
+
+| Path | Gate |
+|------|------|
+| `/cases/[id]` — `JudgmentPanel` (judgment) | `verifiedJudgment !== null && judgmentFinalityState === 'finalized'` |
+| `/cases/[id]` — `JudgmentPanel` (appeal) | `verifiedAppealJudgment !== null && appealFinalityState === 'finalized'` |
+| `/cases/[id]` — `ValidatorConsensusPanel` | `judgmentTxHash` set only after above passes |
+| `/cases` list — `CaseCard` | No judgment content (removed in Round 5) |
+| Any `load()` call | Updates `caseData` only — cannot affect `verifiedJudgment` or finality state |
+
+**Commits:** `53185f2`, `ebde46e`
+
+---
+
+## H. Round 5 Live Evidence — CJP-000003
 
 E2e test run on 2026-08-05 against `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`, exercising the full audit-fixed code path:
 
