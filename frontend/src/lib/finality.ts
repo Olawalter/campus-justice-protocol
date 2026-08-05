@@ -64,9 +64,10 @@ export async function verifyJudgmentFinality(
   if (aborted()) return { ok: false, reason: 'aborted' }
 
   // ── Step 2: receipt must exist and be explicitly FINALIZED ────────────────
-  // statusName is set by transactionActions.getTransaction on the studionet
-  // path before decodeLocalnetTransaction runs.
-  const statusName = (receipt.statusName ?? receipt.status_name ?? '') as string
+  // statusName is set by decodeLocalnetTransaction (genlayer-js processing layer).
+  // Fallback to raw 'status' field for environments where that processing hasn't
+  // run (e.g. when the receipt is used before decodeLocalnetTransaction completes).
+  const statusName = (receipt.statusName ?? receipt.status_name ?? receipt.status ?? '') as string
   if (statusName !== 'FINALIZED') {
     return { ok: false, reason: `status_not_finalized:${statusName}` }
   }
@@ -108,10 +109,17 @@ export async function verifyJudgmentFinality(
   //   abi.calldata.decode → Map, then use Map.get().
   // Testnet/mainnet path: txDataDecoded.callData is a Map from decodeTransaction.
   let callDataMap: Map<string, unknown> | null = null
-  const b64 = (
+  const calldataRaw = (
     (receipt as Record<string, unknown>).data as Record<string, unknown> | undefined
-  )?.calldata as Record<string, unknown> | undefined
-  const b64str = (b64?.base64 ?? '') as string
+  )?.calldata
+  // decodeLocalnetTransaction converts calldata to { base64, readable } object,
+  // but if that processing hasn't run the raw API returns calldata as a plain
+  // base64 string directly — handle both forms.
+  const b64str = (
+    typeof calldataRaw === 'string'
+      ? calldataRaw
+      : (calldataRaw as Record<string, unknown> | undefined)?.base64 ?? ''
+  ) as string
 
   if (b64str) {
     try {
