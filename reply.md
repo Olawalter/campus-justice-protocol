@@ -342,3 +342,47 @@ export function ValidatorConsensusPanel({ txHash, isAppeal = false }: { txHash: 
 Searched all TSX/TS files for references to `judgment`, `final_judgment`, `OutcomeBadge`, and `cjp_judgment_tx_` / `cjp_appeal_tx_`. No other component reads or renders judgment data.
 
 **Commit:** `911a767`
+
+---
+
+## G. Round 5 Live Evidence — CJP-000003
+
+E2e test run on 2026-08-05 against `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`, exercising the full audit-fixed code path:
+
+| Stage | Tx hash | Result |
+|-------|---------|--------|
+| `file_case` | `0x70c71d5e…` | FINALIZED — CJP-000003 created |
+| `submit_evidence` (student) | `0xddeb193e…` | FINALIZED |
+| `submit_evidence` (institution) | `0x1df6853d…` | FINALIZED |
+| `submit_response` | `0x45950b5b…` | FINALIZED — status → RESPONDED |
+| `request_judgment` | `0x848795e5…` | DECIDED — INCONCLUSIVE (0.71) |
+| `record_judgment_tx` | `0xeadd6020…` | FINALIZED — on-chain hash verified |
+| `file_appeal` | `0xc0f0132a…` | FINALIZED — status → APPEALED |
+| `request_appeal_judgment` | `0x04bfc16a…` | FINAL — INCONCLUSIVE (0.82) |
+| `record_appeal_tx` | `0x96128…` | FINALIZED — on-chain hash verified |
+
+Live case: [campusjp.vercel.app/cases/CJP-000003](https://campusjp.vercel.app/cases/CJP-000003)
+
+Receipt verification (same 5-point logic as `verifyJudgmentFinality` in `lib/finality.ts`):
+
+```
+=== JUDGMENT tx ===
+  ✓ 1. statusName === FINALIZED: FINALIZED
+  ✓ 2. execution_result OK: SUCCESS
+  ✓ 3. to_address matches: 0xdd35e4b67f54a9da54d56775e6af7ce801971d92
+  ✓ 4a. method === request_judgment: request_judgment
+  ✓ 4b. args[0] === CJP-000003: CJP-000003
+  --> PASS: verifyJudgmentFinality would return ok:true
+
+=== APPEAL tx ===
+  ✓ 1. statusName === FINALIZED: FINALIZED
+  ✓ 2. execution_result OK: SUCCESS
+  ✓ 3. to_address matches: 0xdd35e4b67f54a9da54d56775e6af7ce801971d92
+  ✓ 4a. method === request_appeal_judgment: request_appeal_judgment
+  ✓ 4b. args[0] === CJP-000003: CJP-000003
+  --> PASS: verifyJudgmentFinality would return ok:true
+
+✓ ALL RECEIPT CHECKS PASS (10/10 across judgment + appeal)
+```
+
+The INCONCLUSIVE outcome is expected — the test uses the project README as the evidence URL (no real policy document or invigilator report), so validators correctly flag the evidentiary record as unverifiable. The verification path, not the judgment outcome, is what the test confirms.
