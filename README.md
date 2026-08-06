@@ -2,7 +2,7 @@
 
 > A decentralized AI arbitration system for university disputes — powered by GenLayer intelligent contracts and Optimistic Democracy.
 
-**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0x83a1ebE176E58f286ee1C934E3513FF48995B916`
+**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`
 
 **Stack:** Next.js 15 · TypeScript · Tailwind CSS 4 · genlayer-js 1.1.8
 
@@ -26,9 +26,9 @@
 7. Either party can file an appeal; a second consensus round produces the final immutable judgment
 
 **Live cases on the contract (no wallet required to view):**
-- [CJP-000001](https://campusjp.vercel.app/cases/CJP-000001) — Exam misconduct · CSC 401 plagiarism penalty · **UPHELD** (0.92 confidence) · appeal **UPHELD** (0.96 confidence)
-- [CJP-000002](https://campusjp.vercel.app/cases/CJP-000002) — Scholarship revocation · merit award dispute · judgment **PARTIAL** (0.92) · appeal **UPHELD** (0.88)
-- [CJP-000005](https://campusjp.vercel.app/cases/CJP-000005) — Exam misconduct · automated e2e test · judgment **INCONCLUSIVE** (0.75) · appeal **UPHELD** (0.84) · 3/5 validators · 1 round
+- [CJP-000003](https://campusjp.vercel.app/cases/CJP-000003) — Automated e2e test · judgment **INCONCLUSIVE** (0.71) · appeal **INCONCLUSIVE** (0.82) · all 10 receipt checks passed
+- [CJP-000006](https://campusjp.vercel.app/cases/CJP-000006) — Scholarship revocation · Merit Award 2026 · judgment **INCONCLUSIVE** (0.97) · appeal **PARTIAL** (0.88) · FINAL
+- [CJP-000008](https://campusjp.vercel.app/cases/CJP-000008) — Exam misconduct · CS402 absent/not submitted · in progress
 
 ---
 
@@ -299,8 +299,10 @@ Before each judgment, the contract scans up to 3 prior decided cases of the same
 **Markdown fence stripping**
 GenLayer validators sometimes wrap LLM output in ```json ... ``` markdown fences even when instructed to return raw JSON. The contract strips fences before `json.loads` to prevent `JSONDecodeError` from crashing the execution after consensus is already reached.
 
-**Judgment finality gate — 5-point receipt verification**
-`request_judgment` triggers LLM execution across validators and returns a tx hash immediately. The frontend stores `{ hash, functionName, caseId }` in localStorage, then waits for `TransactionStatus.FINALIZED`. On the receipt it verifies: (1) FINALIZED status, (2) `txExecutionResultName` is not `FINISHED_WITH_ERROR`, (3) `to_address` matches the deployed contract, (4) `txDataDecoded.callData` function name and case ID match what was dispatched, (5) post-finalization `readCase` to get the final state. Judgment is only rendered after all five checks pass. Until then the UI shows "Accepted → awaiting finality". The check survives page reloads via localStorage.
+**Judgment finality gate — 5-point receipt verification with two-phase status display**
+`request_judgment` triggers LLM execution across validators and returns a tx hash immediately. The frontend stores `{ hash, functionName, caseId }` in localStorage and in the on-chain `judgment_tx_hash` field so any viewer on any device can verify independently. Before rendering any judgment the app runs `verifyJudgmentFinality` — a single authoritative helper in `lib/finality.ts` — which checks: (1) receipt status is explicitly `FINALIZED`, (2) execution result is `SUCCESS` or `FINISHED_WITH_RETURN`, (3) `to_address` matches the deployed contract, (4) decoded calldata contains the expected function name and case ID, (5) post-finalization `readCase` confirms the case is `DECIDED`/`FINAL` with a populated judgment field. The judgment is stored in dedicated `verifiedJudgment` state set only by this helper — no subsequent `readCase` or `load()` call can overwrite it with accepted-state data.
+
+The UI reflects the actual on-chain status in two phases: immediately after tx submission the page shows **"Submitted → waiting for validator consensus"** (tx is `PENDING`, validators have not yet agreed); once the chain confirms `ACCEPTED` status the label changes to **"Accepted → awaiting finality"**; once `FINALIZED` the judgment panels appear. The check survives page reloads — on reload the app re-runs full verification from the stored hash rather than trusting contract state alone.
 
 ---
 
