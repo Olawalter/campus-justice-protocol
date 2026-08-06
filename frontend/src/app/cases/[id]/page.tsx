@@ -10,9 +10,9 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { JudgmentPanel } from '@/components/cases/JudgmentPanel'
 import { ValidatorConsensusPanel } from '@/components/cases/ValidatorConsensusPanel'
 import { EvidencePanel } from '@/components/cases/EvidencePanel'
-import { CASE_TYPE_META } from '@/lib/constants'
+import { CASE_TYPE_META, RPC_URL } from '@/lib/constants'
 
-type FinalityState = 'idle' | 'accepted' | 'finalized' | 'error'
+type FinalityState = 'idle' | 'pending' | 'accepted' | 'finalized' | 'error'
 
 // Re-exported from lib/finality so localStorage writes and reads use the same shape
 type StoredJudgmentMeta = FinalityMeta
@@ -138,7 +138,30 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     abortRef.current = abort
 
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
-    setState('accepted')
+    setState('pending')
+
+    // Poll until the tx reaches ACCEPTED (validator consensus) before showing
+    // "Accepted → awaiting finality". Prior to ACCEPTED the tx is still PENDING
+    // and no consensus has been reached — showing "Accepted" at that point was wrong.
+    const pollAccepted = async () => {
+      while (!abort.signal.aborted) {
+        try {
+          const res = await fetch(`${RPC_URL}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionByHash', params: [meta.hash] }),
+          })
+          const json = await res.json() as { result?: Record<string, unknown> }
+          const status = (json.result?.status ?? '') as string
+          if (status === 'ACCEPTED' || status === 'FINALIZED') return
+        } catch { /* network hiccup — retry */ }
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+
+    pollAccepted()
+      .then(() => { if (!abort.signal.aborted) setState('accepted') })
+      .catch(() => {})
 
     verifyJudgmentFinality(meta, abort.signal)
       .then(result => {
@@ -230,8 +253,8 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const isRespondent = address?.toLowerCase() === c.respondent.toLowerCase()
   const isParty = isFiler || isRespondent
 
-  const awaitingJudgment = judgmentFinalityState === 'accepted'
-  const awaitingAppealJudgment = appealFinalityState === 'accepted'
+  const awaitingJudgment = judgmentFinalityState === 'pending' || judgmentFinalityState === 'accepted'
+  const awaitingAppealJudgment = appealFinalityState === 'pending' || appealFinalityState === 'accepted'
 
   const now = Math.floor(Date.now() / 1000)
   const appealOpen = c.status === 'DECIDED' && c.appeal_deadline && now < c.appeal_deadline && !c.appeal
@@ -468,21 +491,26 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Awaiting finality — judgment tx accepted, waiting for FINALIZED */}
-      {(awaitingJudgment || awaitingAppealJudgment) && (
+      {/* Pending / awaiting finality — two-phase display */}
+      {(awaitingJudgment || awaitingAppealJudgment) && (() => {
+        const isPending =
+          (awaitingJudgment && judgmentFinalityState === 'pending') ||
+          (awaitingAppealJudgment && appealFinalityState === 'pending')
+        return (
         <div className="gl-card p-6 space-y-3" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 border-2 border-purple-700 border-t-purple-300 rounded-full spin shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium" style={{ color: 'var(--color-primary-light)' }}>
-                Accepted → awaiting finality
+                {isPending ? 'Submitted → waiting for validator consensus' : 'Accepted → awaiting finality'}
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                The transaction was accepted by validators and is in Optimistic Democracy&apos;s appeal window.
-                The judgment will be displayed once the transaction reaches FINALIZED status — typically 5–15 minutes.
+                {isPending
+                  ? 'The transaction has been submitted. Validators are independently running the AI model and reaching consensus — this takes 2–5 minutes.'
+                  : 'Validators reached consensus and accepted the result. The judgment will display once the transaction passes the finality window — typically 5–15 minutes total.'}
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
-                You can navigate away and return — this page will resume the finality check automatically.
+                You can navigate away and return — this page will resume the check automatically.
               </p>
             </div>
           </div>
@@ -509,7 +537,8 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             Check status now
           </button>
         </div>
-      )}
+        )
+      })()}
 
       {/* Finality error */}
       {(judgmentFinalityState === 'error' || appealFinalityState === 'error') && (
