@@ -437,7 +437,29 @@ Additionally, the finality `useEffect` called `setCaseData(c)` before triggering
 
 ---
 
-## H. Round 5 Live Evidence — CJP-000003
+## H. Round 7 Fix — Misleading "Accepted" label before validator consensus
+
+**What was wrong:**
+
+"Accepted → awaiting finality" appeared the instant `requestJudgment` returned a tx hash — before any validator had run. At that point the transaction is in `PENDING` state on-chain: validators have not yet reached consensus and nothing has been accepted. The label was factually wrong for the first 2–5 minutes of every judgment flow.
+
+**What was fixed (commit `c1fade8`):**
+
+Added `'pending'` to `FinalityState`. `waitForFinality` now sets `'pending'` immediately on tx submission, then runs a lightweight background poll (`eth_getTransactionByHash` every 3 s) that transitions to `'accepted'` only once the on-chain status reaches `ACCEPTED` or `FINALIZED`. `verifyJudgmentFinality` continues running in parallel and resolves to `'finalized'` once all five checks pass.
+
+The UI now shows three distinct phases that each reflect the actual on-chain state:
+
+| Phase | On-chain status | Message shown |
+|-------|----------------|---------------|
+| Tx submitted | `PENDING` | **"Submitted → waiting for validator consensus"** — validators are independently running the AI model |
+| Validators agreed | `ACCEPTED` | **"Accepted → awaiting finality"** — consensus reached, in the finality window |
+| Finality passed | `FINALIZED` | Judgment panel + Validator Consensus Panel appear |
+
+The poll uses the same direct `eth_getTransactionByHash` fast-path as `verifyJudgmentFinality` — no `setInterval`, not affected by Chrome background-tab timer throttling.
+
+---
+
+## I. Round 5 Live Evidence — CJP-000003
 
 E2e test run on 2026-08-05 against `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`, exercising the full audit-fixed code path:
 
