@@ -50,6 +50,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   const [responseText, setResponseText] = useState('')
   const [appealGrounds, setAppealGrounds] = useState('')
   const [activeAction, setActiveAction] = useState<string | null>(null)
+  const activeActionRef = useRef<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   // Finality tracking — never 'finalized' until verifyJudgmentFinality passes all checks
@@ -207,6 +208,16 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   }, [])
 
   async function doAction(action: string, fn: () => Promise<string>) {
+    // Synchronous re-entrancy guard — activeActionRef updates immediately,
+    // unlike React state (setActiveAction), which only takes effect on the
+    // next render. Without this, a fast double-click can fire doAction twice
+    // before the disabled= state re-renders, dispatching two on-chain
+    // transactions for the same action. If the second one fails (e.g. the
+    // contract rejects re-requesting judgment on an already-decided case),
+    // its hash still overwrites the first (successful) one in localStorage,
+    // orphaning the real result and making the UI report it as never happened.
+    if (activeActionRef.current !== null) return
+    activeActionRef.current = action
     setActiveAction(action)
     setActionError(null)
     try {
@@ -226,6 +237,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Action failed')
     } finally {
+      activeActionRef.current = null
       setActiveAction(null)
     }
   }
@@ -412,9 +424,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             )}
             <button
               onClick={() => doAction('response', () => submitResponse(c.case_id, responseText))}
-              disabled={txPending || responseText.trim().length < 30}
+              disabled={txPending || activeAction !== null || responseText.trim().length < 30}
               className="px-5 py-2.5 rounded-lg text-sm font-medium"
-              style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || responseText.trim().length < 30) ? 0.6 : 1 }}
+              style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || activeAction !== null || responseText.trim().length < 30) ? 0.6 : 1 }}
             >
               {activeAction === 'response' ? 'Submitting…' : 'Submit Response'}
             </button>
@@ -439,9 +451,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           )}
           <button
             onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
-            disabled={txPending}
+            disabled={txPending || activeAction !== null}
             className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: 'rgba(124,58,237,0.15)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: txPending ? 0.6 : 1 }}
+            style={{ background: 'rgba(124,58,237,0.15)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: (txPending || activeAction !== null) ? 0.6 : 1 }}
           >
             {activeAction === 'judgment' && <span className="w-4 h-4 border-2 border-purple-400/30 border-t-purple-400 rounded-full spin inline-block mr-2" />}
             Request AI Judgment (both parties submitted evidence)
@@ -476,9 +488,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             {connected && isFiler && (
               <button
                 onClick={() => doAction('judgment', () => requestJudgment(c.case_id))}
-                disabled={txPending}
+                disabled={txPending || activeAction !== null}
                 className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
-                style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
+                style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || activeAction !== null) ? 0.6 : 1 }}
               >
                 {activeAction === 'judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
                 Request AI Judgment
@@ -580,9 +592,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             />
             <button
               onClick={() => doAction('appeal', () => fileAppeal(c.case_id, appealGrounds))}
-              disabled={txPending || appealGrounds.trim().length < 20}
+              disabled={txPending || activeAction !== null || appealGrounds.trim().length < 20}
               className="px-4 py-2 rounded-lg text-sm font-medium"
-              style={{ background: 'rgba(124,58,237,0.2)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: (txPending || appealGrounds.trim().length < 20) ? 0.6 : 1 }}
+              style={{ background: 'rgba(124,58,237,0.2)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)', opacity: (txPending || activeAction !== null || appealGrounds.trim().length < 20) ? 0.6 : 1 }}
             >
               {activeAction === 'appeal' ? 'Filing…' : 'File Appeal'}
             </button>
@@ -617,9 +629,9 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             )}
             <button
               onClick={() => doAction('appeal-judgment', () => requestAppealJudgment(c.case_id))}
-              disabled={txPending}
+              disabled={txPending || activeAction !== null}
               className="px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2"
-              style={{ background: 'var(--color-primary)', color: '#fff', opacity: txPending ? 0.6 : 1 }}
+              style={{ background: 'var(--color-primary)', color: '#fff', opacity: (txPending || activeAction !== null) ? 0.6 : 1 }}
             >
               {activeAction === 'appeal-judgment' && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spin" />}
               Request Appeal Judgment
