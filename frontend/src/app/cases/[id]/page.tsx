@@ -239,7 +239,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     if (!hash) {
       hash = kind === 'judgment' ? (caseData?.judgment_tx_hash ?? null) : (caseData?.appeal_tx_hash ?? null)
     }
-    if (hash) waitForFinality({ hash, functionName: fnName, caseId: id }, kind)
+    // record=true: if this retry succeeds and the on-chain hash was never
+    // recorded (e.g. the original attempt was interrupted by a network
+    // outage before reaching record_judgment_tx), this completes that step.
+    // Safe to always pass — the contract call is a caller===filer/respondent
+    // check and waitForFinality already treats recordFn failures as
+    // best-effort, so a third-party viewer's retry just fails that part
+    // silently without affecting their own verification result.
+    if (hash) waitForFinality({ hash, functionName: fnName, caseId: id }, kind, true)
   }
 
   useEffect(() => {
