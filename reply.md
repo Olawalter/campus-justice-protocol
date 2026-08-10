@@ -2,7 +2,7 @@
 
 ## Summary
 
-All review points have been fully addressed across two rounds of fixes. Below is a precise account of what was wrong, what was changed, and where to verify each fix.
+All review points have been fully addressed across multiple rounds of fixes (A through J below). Below is a precise account of what was wrong, what was changed, and where to verify each fix.
 
 ---
 
@@ -583,3 +583,22 @@ Item B's fix lives in the intelligent contract, which is immutable once deployed
 - `NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS` updated in Vercel Production and `frontend/.env.local`; production redeployed and verified at [campusjp.vercel.app/cases](https://campusjp.vercel.app/cases) showing the expected empty state
 
 **Commits:** `f78c8cb`, `f9094d0`
+
+---
+
+## K. Confirmation — Round 8 review re-sent, verified still resolved
+
+The team's Round 8 information request ("A. Finality verification is still incomplete", "B. ... consider escaping the evidence delimiters", "C. The private keys are removed from the current source, but remain in Git history") was received a second time. Re-verified against the current repository state on 2026-08-10 that every item in Section J above is still correctly in place:
+
+| Requirement | Verified against live code |
+|---|---|
+| `get_case` read explicitly against finalized state | `frontend/src/lib/genlayer.ts:33` passes `transactionHashVariant: TransactionHashVariant.LATEST_FINAL` |
+| `verifyJudgmentFinality` Step 5 uses the finalized read | `frontend/src/lib/finality.ts:185` — `readCase(meta.caseId, true)` |
+| Exact function name + case ID match (not substring) | `frontend/src/lib/finality.ts:154,166,170` — `abi.calldata.decode` → `Map.get('method')` / `Map.get('args')` |
+| Fail closed on missing/undecodable metadata | Every branch in Step 4b returns `{ ok: false, reason: ... }`; no branch defaults to pass |
+| Evidence delimiter escaping | `contracts/src/campus_justice_protocol.py:82` — `_escape_evidence`, applied at all 3 fetch points |
+| Exposed keys rotated | Confirmed — old wallets abandoned, two new keypairs in use |
+| Exposed keys purged from history | Confirmed — `git log --all -p` on a fresh clone of `origin/main` returns zero matches for either key |
+| Secret scanning added | `.githooks/pre-commit` + `.github/workflows/secret-scan.yml`, both present and tested |
+
+No further changes were required. If the review queue is working from a snapshot prior to commits `f78c8cb` / `f9094d0` / `adbd46c`, re-pulling `origin/main` will reflect the current, already-fixed state.
