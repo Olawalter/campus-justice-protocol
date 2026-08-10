@@ -65,6 +65,12 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // overwrite post-finalization data or expose accepted-state results.
   const [verifiedJudgment, setVerifiedJudgment] = useState<Judgment | null>(null)
   const [verifiedAppealJudgment, setVerifiedAppealJudgment] = useState<Judgment | null>(null)
+  // Raw on-chain status string (PENDING/PROPOSING/COMMITTING/REVEALING/ACCEPTED/...)
+  // surfaced directly instead of collapsing every pre-ACCEPTED phase into one
+  // generic label — GenLayer's consensus process has real distinct phases and
+  // showing which one is active is more honest than a static message.
+  const [judgmentConsensusPhase, setJudgmentConsensusPhase] = useState<string | null>(null)
+  const [appealConsensusPhase, setAppealConsensusPhase] = useState<string | null>(null)
   const judgmentAbortRef = useRef<AbortController | null>(null)
   const appealAbortRef = useRef<AbortController | null>(null)
 
@@ -139,13 +145,26 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     abortRef.current = abort
 
     const setState = kind === 'judgment' ? setJudgmentFinalityState : setAppealFinalityState
+    const setPhase = kind === 'judgment' ? setJudgmentConsensusPhase : setAppealConsensusPhase
     setState('pending')
+    setPhase(null)
 
     // Poll until the tx reaches ACCEPTED (validator consensus) before showing
-    // "Accepted → awaiting finality". Prior to ACCEPTED the tx is still PENDING
-    // and no consensus has been reached — showing "Accepted" at that point was wrong.
+    // "Accepted → awaiting finality". Prior to ACCEPTED the tx moves through
+    // PENDING/PROPOSING/COMMITTING/REVEALING — all real, distinct consensus
+    // phases, not one blob. We surface whichever raw status is currently on
+    // chain, and log every transition with a timestamp so a "phase skipped"
+    // report can be diagnosed precisely rather than guessed at: GenLayer
+    // Studio starts running validator consensus the moment the transaction
+    // is submitted, not when this poll begins, so a slow wallet-approval
+    // click can genuinely let consensus finish before the very first check.
+    // Polling fast from the first instant is the only way to catch a phase
+    // that completes in a few seconds.
+    const pollStart = Date.now()
+    let pollCount = 0
     const pollAccepted = async () => {
       while (!abort.signal.aborted) {
+        pollCount++
         try {
           const res = await fetch(`${RPC_URL}`, {
             method: 'POST',
@@ -154,9 +173,14 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           })
           const json = await res.json() as { result?: Record<string, unknown> }
           const status = (json.result?.status ?? '') as string
+          // eslint-disable-next-line no-console
+          console.debug(`[finality:${kind}] poll #${pollCount} +${Date.now() - pollStart}ms status=${status || '(none)'}`)
+          if (status && status !== 'ACCEPTED' && status !== 'FINALIZED') setPhase(status)
           if (status === 'ACCEPTED' || status === 'FINALIZED') return
         } catch { /* network hiccup — retry */ }
-        await new Promise(r => setTimeout(r, 3000))
+        // Fast cadence for the first ~10s to catch short-lived phases, then
+        // back off to reduce request volume for longer waits.
+        await new Promise(r => setTimeout(r, Date.now() - pollStart < 10000 ? 500 : 3000))
       }
     }
 
@@ -503,18 +527,21 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Pending / awaiting finality — two-phase display */}
+      {/* Pending / awaiting finality — two-phase display with raw consensus phase */}
       {(awaitingJudgment || awaitingAppealJudgment) && (() => {
         const isPending =
           (awaitingJudgment && judgmentFinalityState === 'pending') ||
           (awaitingAppealJudgment && appealFinalityState === 'pending')
+        const phase = awaitingJudgment ? judgmentConsensusPhase : appealConsensusPhase
         return (
         <div className="gl-card p-6 space-y-3" style={{ border: '1px solid rgba(124,58,237,0.3)' }}>
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 border-2 border-purple-700 border-t-purple-300 rounded-full spin shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium" style={{ color: 'var(--color-primary-light)' }}>
-                {isPending ? 'Submitted → waiting for validator consensus' : 'Accepted → awaiting finality'}
+                {isPending
+                  ? `Submitted${phase ? ` → ${phase}` : ' → waiting for validator consensus'}`
+                  : 'Accepted → awaiting finality'}
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
                 {isPending
