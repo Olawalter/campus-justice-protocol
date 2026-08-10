@@ -224,6 +224,24 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       })
   }
 
+  // Re-triggers verification for one kind, used by both the "Check status now"
+  // button (state 'pending'/'accepted') and the "Refresh case" button on the
+  // error panel (state 'error' — e.g. after a transient RPC/CORS outage).
+  // Same hash lookup priority as the mount effect: localStorage first (this
+  // browser dispatched the tx), falling back to the on-chain recorded hash.
+  function retryVerification(kind: 'judgment' | 'appeal') {
+    const raw = localStorage.getItem(kind === 'judgment' ? `cjp_judgment_tx_${id}` : `cjp_appeal_tx_${id}`)
+    const fnName = kind === 'judgment' ? 'request_judgment' : 'request_appeal_judgment'
+    let hash: string | null = null
+    if (raw) {
+      try { hash = (JSON.parse(raw) as StoredJudgmentMeta).hash } catch { /* ignore */ }
+    }
+    if (!hash) {
+      hash = kind === 'judgment' ? (caseData?.judgment_tx_hash ?? null) : (caseData?.appeal_tx_hash ?? null)
+    }
+    if (hash) waitForFinality({ hash, functionName: fnName, caseId: id }, kind)
+  }
+
   useEffect(() => {
     return () => {
       judgmentAbortRef.current?.abort()
@@ -555,20 +573,8 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
           </div>
           <button
             onClick={() => {
-              const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
-              const appealRaw = localStorage.getItem(`cjp_appeal_tx_${id}`)
-              if (awaitingJudgment && judgmentRaw) {
-                try {
-                  const meta = JSON.parse(judgmentRaw) as StoredJudgmentMeta
-                  waitForFinality(meta, 'judgment')
-                } catch { /* ignore */ }
-              }
-              if (awaitingAppealJudgment && appealRaw) {
-                try {
-                  const meta = JSON.parse(appealRaw) as StoredJudgmentMeta
-                  waitForFinality(meta, 'appeal')
-                } catch { /* ignore */ }
-              }
+              if (awaitingJudgment) retryVerification('judgment')
+              if (awaitingAppealJudgment) retryVerification('appeal')
             }}
             className="text-xs px-3 py-1.5 rounded-lg"
             style={{ background: 'rgba(124,58,237,0.12)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}
@@ -582,13 +588,19 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
       {/* Finality error */}
       {(judgmentFinalityState === 'error' || appealFinalityState === 'error') && (
         <div className="gl-card p-5 space-y-2" style={{ border: '1px solid rgba(248,113,113,0.2)' }}>
-          <p className="text-sm font-medium" style={{ color: '#f87171' }}>Finality check timed out</p>
+          <p className="text-sm font-medium" style={{ color: '#f87171' }}>Finality check failed</p>
           <p className="text-xs" style={{ color: 'var(--color-muted)' }}>
-            The transaction may still finalize — click below to refresh the case state.
+            This can happen from a transient network or RPC outage — the transaction itself may still be fine.
+            Click below to retry the full verification.
           </p>
-          <button onClick={load} className="text-xs px-3 py-1.5 rounded-lg"
+          <button
+            onClick={() => {
+              if (judgmentFinalityState === 'error') retryVerification('judgment')
+              if (appealFinalityState === 'error') retryVerification('appeal')
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg"
             style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
-            Refresh case
+            Retry verification
           </button>
         </div>
       )}
