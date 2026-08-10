@@ -105,6 +105,31 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // If neither exists the judgment stays hidden (state remains 'idle').
   useEffect(() => {
     if (typeof window === 'undefined') return
+
+    // Next.js does NOT unmount/remount this component when navigating between
+    // /cases/[id] routes with a different id via client-side navigation (e.g.
+    // a link from a case list) — the same component instance persists across
+    // id changes. Without an explicit reset here, finality/record state left
+    // over from whichever case was viewed previously (including an 'error'
+    // banner, or worse, a *different case's* verified judgment) would still
+    // be showing when this effect starts evaluating the new id, until/unless
+    // something happens to overwrite it. A case with no hash yet (e.g. freshly
+    // filed) has nothing that would overwrite stale state, so the previous
+    // case's banner would be shown indefinitely on a case it has nothing to
+    // do with. Reset everything synchronously before doing anything else.
+    judgmentAbortRef.current?.abort()
+    appealAbortRef.current?.abort()
+    setJudgmentFinalityState('idle')
+    setAppealFinalityState('idle')
+    setJudgmentConsensusPhase(null)
+    setAppealConsensusPhase(null)
+    setVerifiedJudgment(null)
+    setVerifiedAppealJudgment(null)
+    setJudgmentTxHash(null)
+    setAppealTxHash(null)
+    setJudgmentRecordState('idle')
+    setAppealRecordState('idle')
+
     const judgmentRaw = localStorage.getItem(`cjp_judgment_tx_${id}`)
     const appealRaw = localStorage.getItem(`cjp_appeal_tx_${id}`)
 
