@@ -326,6 +326,20 @@ CJP is built on a problem that exists at every university. The current implement
 
 ---
 
+## Secret Scanning
+
+Two layers guard against committing private keys or other secrets:
+
+1. **Local pre-commit hook** (`.githooks/pre-commit`) — blocks any staged file containing a 32-byte hex string or a `PRIVATE_KEY=`/`SECRET_KEY=`/`API_KEY=` style assignment. One-time setup after cloning:
+   ```bash
+   git config core.hooksPath .githooks
+   ```
+2. **CI secret scan** (`.github/workflows/secret-scan.yml`) — runs [gitleaks](https://github.com/gitleaks/gitleaks) against the full history of every push and PR to `main`.
+
+Test wallet keys for `scripts/e2e_test.mjs` belong only in `scripts/.env` (gitignored, never committed).
+
+---
+
 ## Deployment (Vercel)
 
 1. Push to GitHub

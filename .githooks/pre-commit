@@ -1,0 +1,39 @@
+#!/bin/sh
+# Blocks commits containing anything that looks like a raw private key or
+# other high-entropy secret. Runs locally before gitleaks ever sees the code.
+#
+# One-time setup per clone:
+#   git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+found=0
+
+for f in $staged; do
+  [ -f "$f" ] || continue
+  case "$f" in
+    *.env|*.env.*) continue ;;  # gitignored env files are expected to hold secrets locally, but must never be staged
+  esac
+
+  # 32-byte hex private key, with or without 0x prefix
+  if grep -nE '(^|[^0-9a-fA-F])(0x)?[0-9a-fA-F]{64}([^0-9a-fA-F]|$)' "$f" > /dev/null 2>&1; then
+    echo "BLOCKED: possible private key in $f"
+    found=1
+  fi
+
+  # common secret-like assignment patterns
+  if grep -nEi '(PRIVATE_KEY|SECRET_KEY|API_KEY|ACCESS_TOKEN)\s*=\s*[^=[:space:]]{16,}' "$f" > /dev/null 2>&1; then
+    echo "BLOCKED: possible secret assignment in $f"
+    found=1
+  fi
+done
+
+if [ "$found" = "1" ]; then
+  echo ""
+  echo "Commit blocked by .githooks/pre-commit — remove the secret or move it to a gitignored .env file."
+  echo "If this is a false positive, commit with --no-verify (only if you are certain)."
+  exit 1
+fi
+
+exit 0
