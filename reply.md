@@ -602,3 +602,27 @@ The team's Round 8 information request ("A. Finality verification is still incom
 | Secret scanning added | `.githooks/pre-commit` + `.github/workflows/secret-scan.yml`, both present and tested |
 
 No further changes were required. If the review queue is working from a snapshot prior to commits `f78c8cb` / `f9094d0` / `adbd46c`, re-pulling `origin/main` will reflect the current, already-fixed state.
+
+---
+
+## L. Live End-to-End Evidence on the Redeployed Contract — CJP-000006
+
+Full case cycle run against the redeployed contract `0x5Ef36921C4965050841c96da7D00ea20b6cFE011` on 2026-08-10, exercising every Round 8 fix end-to-end:
+
+| Stage | Tx hash | Result |
+|-------|---------|--------|
+| `file_case` | `0xa82020ca…` | FINALIZED — CJP-000006 created |
+| `submit_evidence` (student) | `0xacf74d85…` | FINALIZED |
+| `submit_evidence` (institution) | `0xe6a6a804…` | FINALIZED |
+| `submit_response` | `0xacaddadc…` | FINALIZED — status → RESPONDED |
+| `request_judgment` | `0xbcfc55da…` | FINALIZED — UPHELD (0.94) |
+| `record_judgment_tx` | `0x472712f0…` | FINALIZED — hash recorded on-chain |
+| `file_appeal` | `0x08a94a32…` | FINALIZED — status → APPEALED |
+| `request_appeal_judgment` | `0x11cb78f2…` | FINALIZED — UPHELD (0.97) |
+| `record_appeal_tx` | `0x9729627f…` | FINALIZED — hash recorded on-chain |
+
+**Third-party viewer verification:** opened [campusjp.vercel.app/cases/CJP-000006](https://campusjp.vercel.app/cases/CJP-000006) in a browser session with **zero localStorage** — no prior interaction with this case. Confirmed via `localStorage.getItem('cjp_judgment_tx_CJP-000006')` returning `null` that the page had no client-side hint and relied entirely on the on-chain `judgment_tx_hash`/`appeal_tx_hash` fields, `verifyJudgmentFinality`'s finalized-state read, and exact `abi.calldata.decode` match. Result: both the judgment panel and appeal judgment panel rendered correctly, each with its Validator Consensus panel, no spinner, no error.
+
+This demonstrates the complete Round 8 fix chain working together for a viewer who never touched the case: finalized-state contract read (item A.1), exact calldata decode (item A.2), and the on-chain hash-recording path (`record_judgment_tx`/`record_appeal_tx`) that makes the result independently verifiable by anyone — which is the actual guarantee the finality gate exists to provide.
+
+**Note on other CJP-000001–005 cases on this contract:** these were run manually through the browser during earlier testing and are not currently viewable by third parties — the on-chain hash-recording step was interrupted for each (a GenLayer Studio RPC/CORS outage affected CJP-000005; a UI double-submit bug, since fixed, affected CJP-000001). This does not indicate a flaw in the finality logic itself — it is fail-closed working exactly as intended, refusing to display a judgment without a verifiable recorded hash. CJP-000006 above is the clean reference case demonstrating the full intended flow end-to-end.
