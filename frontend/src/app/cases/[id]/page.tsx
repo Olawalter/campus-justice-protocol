@@ -65,6 +65,16 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
   // overwrite post-finalization data or expose accepted-state results.
   const [verifiedJudgment, setVerifiedJudgment] = useState<Judgment | null>(null)
   const [verifiedAppealJudgment, setVerifiedAppealJudgment] = useState<Judgment | null>(null)
+  // Recording the verified hash on-chain (record_judgment_tx/record_appeal_tx)
+  // is a SECOND wallet transaction, fired right after the judgment already
+  // renders — easy to miss if the wallet popup isn't visibly flagged. Without
+  // this state the recording step was silent: if the user didn't notice and
+  // approve that second popup, it failed with no visible error, leaving the
+  // case permanently invisible to third-party viewers. Surfaced explicitly so
+  // the user knows to expect it and can retry if it fails.
+  type RecordState = 'idle' | 'recording' | 'done' | 'failed'
+  const [judgmentRecordState, setJudgmentRecordState] = useState<RecordState>('idle')
+  const [appealRecordState, setAppealRecordState] = useState<RecordState>('idle')
   // Raw on-chain status string (PENDING/PROPOSING/COMMITTING/REVEALING/ACCEPTED/...)
   // surfaced directly instead of collapsing every pre-ACCEPTED phase into one
   // generic label — GenLayer's consensus process has real distinct phases and
@@ -213,10 +223,16 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         setState('finalized')
 
         // Record the verified hash on-chain so any viewer on any device can
-        // retrieve it and run the same verification independently.
+        // retrieve it and run the same verification independently. This is a
+        // SEPARATE wallet transaction — surface it explicitly so a second
+        // wallet popup doesn't go unnoticed and silently fail.
         if (record) {
+          const setRecordState = kind === 'judgment' ? setJudgmentRecordState : setAppealRecordState
+          setRecordState('recording')
           const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
-          recordFn(meta.caseId, meta.hash).catch(() => { /* best-effort */ })
+          recordFn(meta.caseId, meta.hash)
+            .then(() => setRecordState('done'))
+            .catch(() => setRecordState('failed'))
         }
       })
       .catch(() => {
@@ -247,6 +263,20 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     // best-effort, so a third-party viewer's retry just fails that part
     // silently without affecting their own verification result.
     if (hash) waitForFinality({ hash, functionName: fnName, caseId: id }, kind, true)
+  }
+
+  // Retries only the record_judgment_tx/record_appeal_tx step, for when
+  // verification already succeeded locally (judgment is visible) but the
+  // recording transaction failed or its wallet popup was missed/dismissed.
+  function retryRecord(kind: 'judgment' | 'appeal') {
+    const hash = kind === 'judgment' ? judgmentTxHash : appealTxHash
+    if (!hash) return
+    const setRecordState = kind === 'judgment' ? setJudgmentRecordState : setAppealRecordState
+    setRecordState('recording')
+    const recordFn = kind === 'judgment' ? recordJudgmentTx : recordAppealTx
+    recordFn(id, hash)
+      .then(() => setRecordState('done'))
+      .catch(() => setRecordState('failed'))
   }
 
   useEffect(() => {
@@ -398,12 +428,36 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         <>
           <JudgmentPanel judgment={verifiedJudgment} />
           {judgmentTxHash && <ValidatorConsensusPanel txHash={judgmentTxHash} />}
+          {judgmentRecordState === 'recording' && (
+            <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(124,58,237,0.08)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}>
+              Recording this result on-chain so anyone can verify it — a second wallet approval popup should appear now. Please approve it.
+            </div>
+          )}
+          {judgmentRecordState === 'failed' && (
+            <div className="text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-3" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <span>On-chain recording failed or the wallet popup was missed — this case won&apos;t be visible to other viewers yet.</span>
+              <button onClick={() => retryRecord('judgment')} className="shrink-0 px-2 py-1 rounded"
+                style={{ background: 'rgba(239,68,68,0.15)' }}>Retry</button>
+            </div>
+          )}
         </>
       )}
       {verifiedAppealJudgment && appealFinalityState === 'finalized' && (
         <>
           <JudgmentPanel judgment={verifiedAppealJudgment} isAppeal />
           {appealTxHash && <ValidatorConsensusPanel txHash={appealTxHash} isAppeal />}
+          {appealRecordState === 'recording' && (
+            <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(124,58,237,0.08)', color: 'var(--color-primary-light)', border: '1px solid var(--color-border)' }}>
+              Recording this result on-chain so anyone can verify it — a second wallet approval popup should appear now. Please approve it.
+            </div>
+          )}
+          {appealRecordState === 'failed' && (
+            <div className="text-xs px-3 py-2 rounded-lg flex items-center justify-between gap-3" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <span>On-chain recording failed or the wallet popup was missed — this case won&apos;t be visible to other viewers yet.</span>
+              <button onClick={() => retryRecord('appeal')} className="shrink-0 px-2 py-1 rounded"
+                style={{ background: 'rgba(239,68,68,0.15)' }}>Retry</button>
+            </div>
+          )}
         </>
       )}
 
