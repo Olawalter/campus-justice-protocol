@@ -16,7 +16,7 @@
  * judgment content.
  */
 
-import { createClient } from 'genlayer-js'
+import { createClient, abi } from 'genlayer-js'
 import { TransactionStatus } from 'genlayer-js/types'
 import { readCase, getChain } from '@/lib/genlayer'
 import { CONTRACT_ADDRESS, RPC_URL } from '@/lib/constants'
@@ -121,14 +121,16 @@ export async function verifyJudgmentFinality(
     return { ok: false, reason: `address_mismatch:${toAddr}` }
   }
 
-  // ── Step 4b: calldata must contain the expected function name and case ID ────
-  // The raw API returns data.calldata as a base64 string whose decoded bytes
-  // contain the method name and args as readable UTF-8 substrings.
-  // genlayer-js's abi.calldata.decode parses a binary envelope format and is
-  // not reliably available in browser bundles — using TextDecoder to search the
-  // raw bytes is simpler, has zero dependencies, and is guaranteed browser-safe.
-  // The browser check above confirmed method name and case ID are plaintext in
-  // the decoded bytes, so substring search is both sufficient and correct.
+  // ── Step 4b: calldata must decode to the exact function name and case ID ──
+  // Exact structural decode via abi.calldata.decode — NOT a substring search.
+  // A substring match on the raw bytes cannot prove the transaction actually
+  // called the expected function with that case ID as its argument (e.g. a
+  // case ID appearing inside unrelated data, or a different function name
+  // that happens to contain the target as a substring, would false-pass).
+  // abi.calldata.decode parses GenLayer's binary calldata envelope into its
+  // real structure — a Map with 'method' and 'args' keys — giving an exact,
+  // unambiguous match. It is pure TypeScript (ULEB128 + TextDecoder), no
+  // native dependencies, and runs identically in Node and the browser.
   const calldataRaw = (
     (receipt as Record<string, unknown>).data as Record<string, unknown> | undefined
   )?.calldata
@@ -138,46 +140,49 @@ export async function verifyJudgmentFinality(
       : (calldataRaw as Record<string, unknown> | undefined)?.base64 ?? ''
   ) as string
 
-  // Also check txDataDecoded (testnet/mainnet processed path)
+  // Also check txDataDecoded (path already decoded by genlayer-js processing)
   const txDecoded = (receipt as Record<string, unknown>).txDataDecoded as Record<string, unknown> | undefined
-  const txCallData = txDecoded?.callData
+  const preDecodedCallData = txDecoded?.callData
 
-  if (b64str) {
+  let decodedCall: Map<string, unknown> | undefined
+
+  if (preDecodedCallData instanceof Map) {
+    decodedCall = preDecodedCallData
+  } else if (b64str) {
     try {
       const bytes = Uint8Array.from(atob(b64str), c => c.charCodeAt(0))
-      const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-      if (!text.includes(meta.functionName)) {
-        return { ok: false, reason: `method_not_in_calldata:${meta.functionName}` }
+      const decoded = abi.calldata.decode(bytes)
+      if (!(decoded instanceof Map)) {
+        return { ok: false, reason: 'calldata_decode_not_map' }
       }
-      if (!text.includes(meta.caseId)) {
-        return { ok: false, reason: `caseid_not_in_calldata:${meta.caseId}` }
-      }
+      decodedCall = decoded
     } catch {
       return { ok: false, reason: 'calldata_decode_error' }
-    }
-  } else if (txCallData instanceof Map) {
-    // Testnet/mainnet: txDataDecoded.callData is a Map from decodeTransaction
-    const fn = txCallData.get('method')
-    if (typeof fn !== 'string' || fn !== meta.functionName) {
-      return { ok: false, reason: `method_mismatch:${String(fn)}` }
-    }
-    const args = txCallData.get('args')
-    if (!Array.isArray(args) || !args.length || String(args[0]) !== meta.caseId) {
-      return { ok: false, reason: 'args_mismatch' }
     }
   } else {
     return { ok: false, reason: 'calldata_missing' }
   }
 
+  const fn = decodedCall.get('method')
+  if (typeof fn !== 'string' || fn !== meta.functionName) {
+    return { ok: false, reason: `method_mismatch:${String(fn)}` }
+  }
+  const args = decodedCall.get('args')
+  if (!Array.isArray(args) || args.length === 0 || String(args[0]) !== meta.caseId) {
+    return { ok: false, reason: `args_mismatch:${JSON.stringify(args)}` }
+  }
+
   if (aborted()) return { ok: false, reason: 'aborted' }
 
   // ── Step 5: post-finalization contract read ───────────────────────────────
-  // Read the contract AFTER all receipt checks pass. This is a fresh read of
-  // the finalised state — not the accepted (optimistic) state that was used
-  // to trigger the verification.
+  // Read the contract AFTER all receipt checks pass, explicitly against the
+  // FINALIZED state root (transactionHashVariant: latest-final). GenLayer
+  // readContract defaults to the accepted/optimistic state, which can still
+  // be reverted during the appeal window — this read must not silently fall
+  // back to that. readCase(id, true) fails closed if the finalized read errors.
   let fresh: Case | null = null
   try {
-    fresh = await readCase(meta.caseId)
+    fresh = await readCase(meta.caseId, true)
   } catch {
     return { ok: false, reason: 'contract_read_failed' }
   }

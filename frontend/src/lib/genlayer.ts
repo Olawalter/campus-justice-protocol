@@ -1,5 +1,6 @@
 import { createClient } from 'genlayer-js'
 import { studionet, testnetAsimov } from 'genlayer-js/chains'
+import { TransactionHashVariant } from 'genlayer-js/types'
 import { CHAIN_ID, CONTRACT_ADDRESS, RPC_URL } from './constants'
 
 export { CHAIN_ID, RPC_URL }
@@ -20,12 +21,16 @@ export function getNetworkName(): 'studionet' | 'testnetAsimov' {
 
 // ── Reads ──────────────────────────────────────────────────────────────────────
 
-export async function readCase(caseId: string): Promise<Case | null> {
+// finalized=true forces the read against the finalized state root instead of
+// the default accepted/optimistic state. Required for any post-finality
+// verification — accepted state can still be reverted during the appeal window.
+export async function readCase(caseId: string, finalized = false): Promise<Case | null> {
   const client = getReadClient()
   const raw = await client.readContract({
     address: CONTRACT_ADDRESS,
     functionName: 'get_case',
     args: [caseId],
+    ...(finalized ? { transactionHashVariant: TransactionHashVariant.LATEST_FINAL } : {}),
   }) as string
   if (!raw) return null
   return JSON.parse(raw) as Case
