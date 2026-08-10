@@ -500,3 +500,86 @@ Receipt verification (same 5-point logic as `verifyJudgmentFinality` in `lib/fin
 ```
 
 The INCONCLUSIVE outcome is expected — the test uses the project README as the evidence URL (no real policy document or invigilator report), so validators correctly flag the evidentiary record as unverifiable. The verification path, not the judgment outcome, is what the test confirms.
+
+---
+
+## J. Round 8 Fixes — Team Review: exact finalized-state read, structural calldata decode, exposed keys
+
+**Team feedback, item A:** *"`readCase()` uses `readContract()` without `stateStatus: 'finalized'`. GenLayer reads default to accepted state, so Step 5 can still consume optimistic state. ... The current calldata verification uses UTF-8 substring checks. This does not prove that the finalized transaction actually called the expected function with that case ID as its argument."*
+
+**Team feedback, item C:** *"Both plaintext private keys are still recoverable from earlier commits in the repository. ... rotate/abandon both exposed wallets; purge the plaintext keys from Git history; verify the leaked key values are no longer present anywhere in repository history; add secret scanning to prevent recurrence."*
+
+### A.1 — Finalized-state read (commit `f78c8cb`)
+
+`readCase()` in `lib/genlayer.ts` gained a `finalized` parameter. When `true`, it passes `transactionHashVariant: TransactionHashVariant.LATEST_FINAL` to `readContract`:
+
+```typescript
+export async function readCase(caseId: string, finalized = false): Promise<Case | null> {
+  const client = getReadClient()
+  const raw = await client.readContract({
+    address: CONTRACT_ADDRESS,
+    functionName: 'get_case',
+    args: [caseId],
+    ...(finalized ? { transactionHashVariant: TransactionHashVariant.LATEST_FINAL } : {}),
+  }) as string
+  ...
+}
+```
+
+`verifyJudgmentFinality` Step 5 now calls `readCase(meta.caseId, true)` — verified live against Studionet: a plain read and a `latest-final` read against the same case both returned `FINAL` status in testing, confirming the finalized-state path resolves correctly and does not silently fall back to the accepted/optimistic root.
+
+### A.2 — Exact structural calldata decode (same commit)
+
+Step 4b previously used `text.includes(meta.functionName)` and `text.includes(meta.caseId)` against a UTF-8 decode of the raw calldata bytes — a substring match, not proof the transaction called that function with that argument.
+
+Replaced with `abi.calldata.decode`, genlayer-js's own decoder for GenLayer's binary calldata envelope (pure TypeScript — ULEB128 varint decoding + `TextDecoder`, no native dependencies):
+
+```typescript
+const bytes = Uint8Array.from(atob(b64str), c => c.charCodeAt(0))
+const decoded = abi.calldata.decode(bytes)   // → Map { 'method' => ..., 'args' => [...] }
+const fn = decoded.get('method')
+if (fn !== meta.functionName) return { ok: false, reason: `method_mismatch:${fn}` }
+const args = decoded.get('args')
+if (String(args[0]) !== meta.caseId) return { ok: false, reason: 'args_mismatch' }
+```
+
+Verified against a real receipt's calldata bytes in Node:
+```
+decoded: Map(2) { 'args' => [ 'CJP-000006' ], 'method' => 'request_appeal_judgment' }
+```
+This is an exact, unambiguous structural match — not a heuristic. Also confirmed the decoder bundles and runs correctly in the Next.js production browser build (`npm run build` succeeded, no errors related to `abi.calldata.decode`) — the earlier Round 6 note that this decoder was "not reliably available in browser bundles" was incorrect; the actual issue at the time was passing the wrong byte format, not a bundling limitation.
+
+### B — Evidence delimiter escaping (same commit)
+
+Per the review's additional hardening suggestion: fetched evidence and policy content now has literal `<EXTERNAL_EVIDENCE>` / `</EXTERNAL_EVIDENCE>` tag-like substrings neutralised before wrapping, so hostile content cannot inject a closing delimiter and break out of the untrusted-data block:
+
+```python
+def _escape_evidence(self, content: str) -> str:
+    return content.replace("<EXTERNAL_EVIDENCE", "‹EXTERNAL_EVIDENCE").replace(
+        "</EXTERNAL_EVIDENCE>", "‹/EXTERNAL_EVIDENCE›"
+    )
+```
+
+Applied to all three fetch points: student evidence, institution evidence, policy document.
+
+### C — Exposed private keys: rotated, purged, scanned
+
+1. **Rotated** — the two wallets referenced in `scripts/e2e_test.mjs` history were abandoned. Two new keypairs were generated and funded on Studionet; the old wallet addresses will not be reused.
+2. **Purged** — `git-filter-repo` rewrote all 52 historical commits, replacing both plaintext key values with `REDACTED-ROTATED-PRIVATE-KEY` everywhere they appeared (`scripts/e2e_test.mjs`, 9 blobs across history). Force-pushed to `origin/main`.
+3. **Verified** — confirmed via a completely fresh `git clone` of the GitHub remote (not the local working copy) that neither key value appears anywhere in `git log --all -p`. A mirror backup of the pre-purge repository was retained locally before the rewrite.
+4. **Secret scanning added** (commit `f9094d0`) — two layers:
+   - `.githooks/pre-commit` blocks any staged file containing a 32-byte hex string or a `PRIVATE_KEY=`/`SECRET_KEY=`/`API_KEY=`-style assignment, before the commit is even created. Tested against a planted secret — confirmed it blocks the commit with a non-zero exit code. Activate per clone with `git config core.hooksPath .githooks`.
+   - `.github/workflows/secret-scan.yml` runs [gitleaks](https://github.com/gitleaks/gitleaks) against full history on every push/PR to `main`.
+
+**Note for anyone with an existing local clone:** the force-push rewrote every commit hash from the point the keys were first introduced onward. Existing clones must re-clone or hard-reset to `origin/main` — a normal `git pull` will not resolve the divergence.
+
+### Contract redeployment
+
+Item B's fix lives in the intelligent contract, which is immutable once deployed — the fix could not take effect on the already-deployed contract. The contract was redeployed on 2026-08-10:
+
+- **Old contract** (retired): `0xDd35E4b67f54A9da54d56775E6af7CE801971d92` — still queryable directly via RPC for the historical record (CJP-000001 through CJP-000008), no longer linked from the app
+- **New contract** (live): `0x5Ef36921C4965050841c96da7D00ea20b6cFE011` — deployed via `client.deployContract()` using one of the newly-rotated wallets, funded via Studionet's `sim_fundAccount` RPC method; deployment tx `0x6259af2d…` reached `FINALIZED` with `MAJORITY_AGREE`
+- Verified live: `get_case_count()` on the new contract returns `0` (fresh instance), confirmed via direct RPC read
+- `NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS` updated in Vercel Production and `frontend/.env.local`; production redeployed and verified at [campusjp.vercel.app/cases](https://campusjp.vercel.app/cases) showing the expected empty state
+
+**Commits:** `f78c8cb`, `f9094d0`

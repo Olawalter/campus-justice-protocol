@@ -2,7 +2,7 @@
 
 > A decentralized AI arbitration system for university disputes — powered by GenLayer intelligent contracts and Optimistic Democracy.
 
-**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0xDd35E4b67f54A9da54d56775E6af7CE801971d92`
+**Live:** [campusjp.vercel.app](https://campusjp.vercel.app) · **Chain:** GenLayer Studionet (61999) · **Contract:** `0x5Ef36921C4965050841c96da7D00ea20b6cFE011`
 
 **Stack:** Next.js 15 · TypeScript · Tailwind CSS 4 · genlayer-js 1.1.8
 
@@ -25,10 +25,7 @@
 6. The judgment appears on the case page with full reasoning, findings, confidence score, and per-validator vote breakdown
 7. Either party can file an appeal; a second consensus round produces the final immutable judgment
 
-**Live cases on the contract (no wallet required to view):**
-- [CJP-000003](https://campusjp.vercel.app/cases/CJP-000003) — Automated e2e test · judgment **INCONCLUSIVE** (0.71) · appeal **INCONCLUSIVE** (0.82) · all 10 receipt checks passed
-- [CJP-000006](https://campusjp.vercel.app/cases/CJP-000006) — Scholarship revocation · Merit Award 2026 · judgment **INCONCLUSIVE** (0.97) · appeal **PARTIAL** (0.88) · FINAL
-- [CJP-000008](https://campusjp.vercel.app/cases/CJP-000008) — Exam misconduct · CS402 absent/not submitted · in progress
+**Live cases on the contract (no wallet required to view):** the contract was redeployed on 2026-08-10 (see `reply.md` Section J) to ship the prompt-injection delimiter-escaping fix — this is a fresh instance with no cases yet. Prior test cases (CJP-000001 through CJP-000008) remain permanently viewable on the retired contract `0xDd35E4b67f54A9da54d56775E6af7CE801971d92` via direct RPC reads, but are no longer linked from the live app.
 
 ---
 
@@ -191,7 +188,7 @@ Create `frontend/.env.local`:
 
 ```env
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0xDd35E4b67f54A9da54d56775E6af7CE801971d92
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x5Ef36921C4965050841c96da7D00ea20b6cFE011
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_APP_URL=https://campusjp.vercel.app
 ```
