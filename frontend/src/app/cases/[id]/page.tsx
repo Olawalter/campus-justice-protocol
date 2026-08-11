@@ -208,6 +208,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     // that completes in a few seconds.
     const pollStart = Date.now()
     let pollCount = 0
+    let rateLimitStreak = 0
     const pollAccepted = async () => {
       while (!abort.signal.aborted) {
         pollCount++
@@ -217,16 +218,33 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionByHash', params: [meta.hash] }),
           })
-          const json = await res.json() as { result?: Record<string, unknown> }
+          const json = await res.json() as { result?: Record<string, unknown>; error?: { code?: number; message?: string } }
+          // GenLayer Studio caps requests at 500/hour. A previous version of
+          // this poll ran every 500ms for the first 10s then every 3s
+          // indefinitely — easily 100+ requests for a single judgment wait —
+          // which could exhaust the shared limit on its own. A rate-limited
+          // response arrives as HTTP 200 with a JSON-RPC error, not a thrown
+          // error, so it was silently treated as "no status yet" and polled
+          // again immediately, compounding the problem. Detected explicitly
+          // here and given a longer, growing backoff instead.
+          if (json.error?.code === -32029 || /rate limit/i.test(json.error?.message ?? '')) {
+            rateLimitStreak++
+            // eslint-disable-next-line no-console
+            console.debug(`[finality:${kind}] poll #${pollCount} +${Date.now() - pollStart}ms rate-limited (streak ${rateLimitStreak})`)
+            await new Promise(r => setTimeout(r, Math.min(5000 * rateLimitStreak, 30000)))
+            continue
+          }
+          rateLimitStreak = 0
           const status = (json.result?.status ?? '') as string
           // eslint-disable-next-line no-console
           console.debug(`[finality:${kind}] poll #${pollCount} +${Date.now() - pollStart}ms status=${status || '(none)'}`)
           if (status && status !== 'ACCEPTED' && status !== 'FINALIZED') setPhase(status)
           if (status === 'ACCEPTED' || status === 'FINALIZED') return
         } catch { /* network hiccup — retry */ }
-        // Fast cadence for the first ~10s to catch short-lived phases, then
-        // back off to reduce request volume for longer waits.
-        await new Promise(r => setTimeout(r, Date.now() - pollStart < 10000 ? 500 : 3000))
+        // Gentler cadence than before — a few seconds of granularity is more
+        // than enough for a process that takes minutes, and cuts total
+        // request volume against the shared rate limit substantially.
+        await new Promise(r => setTimeout(r, Date.now() - pollStart < 6000 ? 2000 : 4000))
       }
     }
 

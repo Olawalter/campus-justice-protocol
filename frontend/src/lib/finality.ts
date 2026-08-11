@@ -49,19 +49,43 @@ export async function verifyJudgmentFinality(
   // (Chrome reduces timer frequency to ~1/min for background tabs, turning a
   // 10-minute wait into hours). Fall back to waitForTransactionReceipt only if
   // the direct fetch fails or returns a non-FINALIZED status.
+  //
+  // GenLayer Studio enforces a 500 requests/hour cap. A rate-limited response
+  // comes back as HTTP 200 with a JSON-RPC error body (code -32029), not a
+  // thrown fetch error — so it was previously falling through to the
+  // waitForTransactionReceipt fallback (itself capable of another ~120
+  // requests) as if the tx just wasn't finalized yet, frequently exhausting
+  // the limit further and eventually surfacing a generic "check failed" even
+  // when the transaction had already finalized minutes earlier. Detected and
+  // retried with backoff here instead of silently mistaken for "not finalized".
+  const isRateLimited = (json: { error?: { code?: number; message?: string } }) =>
+    json.error?.code === -32029 || /rate limit/i.test(json.error?.message ?? '')
+
   let receipt: Record<string, unknown>
   try {
-    const directRes = await fetch(RPC_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
-        method: 'eth_getTransactionByHash',
-        params: [meta.hash],
-      }),
-    })
-    const directJson = await directRes.json() as { result?: Record<string, unknown> }
-    const directReceipt = directJson.result
+    let directReceipt: Record<string, unknown> | undefined
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (aborted()) return { ok: false, reason: 'aborted' }
+      const directRes = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1,
+          method: 'eth_getTransactionByHash',
+          params: [meta.hash],
+        }),
+      })
+      const directJson = await directRes.json() as { result?: Record<string, unknown>; error?: { code?: number; message?: string } }
+      if (isRateLimited(directJson)) {
+        // Back off and retry the same read — do not fall through to the
+        // expensive fallback poller on a rate-limit response.
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)))
+        continue
+      }
+      directReceipt = directJson.result
+      break
+    }
+
     if (directReceipt && (directReceipt.status === 'FINALIZED' || directReceipt.statusName === 'FINALIZED' || directReceipt.status_name === 'FINALIZED')) {
       receipt = directReceipt
     } else {
