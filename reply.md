@@ -627,6 +627,26 @@ This demonstrates the complete Round 8 fix chain working together for a viewer w
 
 **Note on other CJP-000001–005 cases on this contract:** these were run manually through the browser during earlier testing and are not currently viewable by third parties — the on-chain hash-recording step was interrupted for each (a GenLayer Studio RPC/CORS outage affected CJP-000005; a UI double-submit bug, since fixed, affected CJP-000001). This does not indicate a flaw in the finality logic itself — it is fail-closed working exactly as intended, refusing to display a judgment without a verifiable recorded hash. CJP-000006 above is the clean reference case demonstrating the full intended flow end-to-end.
 
-### CJP-000007 — second reference case (manual, browser-driven)
+### CJP-000007–009 — manual testing surfaced three additional real bugs (all fixed)
 
-A second full cycle (Election Dispute, file → evidence × 2 → response → judgment → appeal → appeal judgment) was handed off as a manual browser test on 2026-08-10, run through the actual UI with real wallet approvals rather than scripted — intended as an independent, user-driven confirmation alongside CJP-000006's scripted run. Result pending at time of writing; will be added here with tx hashes and the same third-party-viewer check once complete.
+Manual browser-driven runs of CJP-000007, 008, and 009 exposed issues that the scripted CJP-000006 run could not have caught, because scripted execution never reloads the page or leaves gaps for the user's own browsing behavior:
+
+1. **Mount-effect verification never recorded the hash** (commit `09e00a2`) — `waitForFinality` has three call sites (`doAction`, `retryVerification`, and the mount effect that resumes verification on page load/reload). The mount effect always passed the default `record=false`. Since the UI explicitly invites navigating away and back during the multi-minute wait, any reload during that window silently and permanently dropped the on-chain recording step — no error, no banner, just silence. Root-caused via transaction history showing zero `record_judgment_tx`/`record_appeal_tx` attempts, not even rejected ones, across three separate cases.
+2. **Cross-case state leak** (commit `58d9c8c`) — Next.js does not remount the `/cases/[id]` page component on client-side navigation between different case IDs. Finality/error state from a previously viewed case remained visible on a freshly filed case with nothing to do with it, until the id-keyed effect was fixed to explicitly reset all per-case state before evaluating the new id.
+3. **RPC rate-limit responses misread as "not finalized"** (commit `500ced9`) — GenLayer Studio enforces 500 requests/hour. A rate-limited response returns HTTP 200 with a JSON-RPC error body, not a thrown error, so it was being silently treated as "no result yet," triggering an expensive fallback poll (up to 120 more requests) that could itself get rate-limited, eventually surfacing a false "Finality check failed" even when the transaction had already reached FINALIZED on-chain minutes earlier. Fixed by detecting the rate-limit response explicitly and backing off/retrying instead of misinterpreting it as a real failure state; polling cadence was also reduced (2s/4s vs. the previous 500ms/3s) to reduce baseline request volume against the shared limit.
+
+### CJP-000010 — definitive manual reference case, real-world conditions
+
+Filed, evidenced, responded, judged, appealed, and appeal-judged entirely by hand through the live UI on 2026-08-11 — including a deliberate mid-wait page reload during the appeal judgment step, specifically to exercise the mount-effect recording bug above. Both the recording banner and the second wallet approval popup fired and were approved correctly on both the judgment and appeal steps, surviving the reload.
+
+| Field | Value |
+|---|---|
+| Status | `FINAL` |
+| `judgment_tx_hash` | `0x66f3d68b…` — recorded on-chain |
+| `appeal_tx_hash` | `0x5c65a44e…` — recorded on-chain |
+| Judgment | PARTIAL (0.90) |
+| Appeal judgment | UPHELD (0.95) |
+
+**Third-party viewer verification:** [campusjp.vercel.app/cases/CJP-000010](https://campusjp.vercel.app/cases/CJP-000010) confirmed rendering correctly — judgment panel, appeal judgment panel, and both Validator Consensus panels — in a browser session with `localStorage.getItem('cjp_judgment_tx_CJP-000010')` returning `null`, i.e. no client-side hint, relying entirely on the on-chain recorded hashes and the finalized-state verification path.
+
+This is the strongest evidence to date: a genuine, unscripted, real-world manual test — including the exact interruption pattern (mid-wait reload) that previously broke the recording step — completing cleanly end-to-end and remaining independently verifiable by any third party.
