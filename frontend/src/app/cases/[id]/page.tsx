@@ -144,9 +144,19 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         return c.judgment_tx_hash ?? null
       })()
       if (judgmentHash) {
+        // record=true here too: if the browser that originally dispatched
+        // request_judgment reloads or revisits this page before the record
+        // step completed, THIS mount effect is what takes over verification
+        // — previously it always passed record=false (the default), so a
+        // reload during the "awaiting finality" window silently and
+        // permanently dropped the on-chain recording step with no error
+        // shown anywhere. Safe for third-party viewers too: record_judgment_tx
+        // enforces caller===filer on-chain and a non-filer's attempt just
+        // fails harmlessly (already treated as best-effort below).
         waitForFinality(
           { hash: judgmentHash, functionName: 'request_judgment', caseId: id },
           'judgment',
+          true,
         )
       }
       // If no hash available: judgment stays hidden until one is recorded on-chain
@@ -162,6 +172,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         waitForFinality(
           { hash: appealHash, functionName: 'request_appeal_judgment', caseId: id },
           'appeal',
+          true,
         )
       }
     })
